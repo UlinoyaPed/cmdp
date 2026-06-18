@@ -1,0 +1,48 @@
+mod app;
+mod config;
+mod error;
+mod event;
+mod output;
+mod parser;
+mod preview;
+mod renderer;
+mod template;
+mod ui;
+use anyhow::Result;
+use crossterm::{
+    event::{poll, read, Event},
+    execute,
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+};
+use ratatui::{backend::CrosstermBackend, Terminal};
+use std::{io, time::Duration};
+
+fn main() -> Result<()> {
+    let cfg = config::load()?;
+    let mut app = app::App::new(cfg);
+    enable_raw_mode()?;
+    let mut stdout = io::stdout();
+    execute!(stdout, EnterAlternateScreen)?;
+    let backend = CrosstermBackend::new(stdout);
+    let mut terminal = Terminal::new(backend)?;
+    let res = run(&mut terminal, &mut app);
+    disable_raw_mode()?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    terminal.show_cursor()?;
+    res?;
+    if let Some(cmd) = app.output {
+        output::print_command(&cmd);
+    }
+    Ok(())
+}
+fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut app::App) -> Result<()> {
+    while !app.should_quit {
+        terminal.draw(|f| ui::draw(f, app))?;
+        if poll(Duration::from_millis(200))? {
+            if let Event::Key(k) = read()? {
+                event::handle_key(app, k);
+            }
+        }
+    }
+    Ok(())
+}
