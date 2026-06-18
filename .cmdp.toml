@@ -1,0 +1,32 @@
+version = 1
+
+[categories.project]
+alias = "当前项目"
+
+[commands.run]
+category = "project"
+title = "运行项目"
+description = "运行当前 Rust 项目"
+danger = false
+template = '''
+cargo run [[release:--release]] [[args:-- {{args}}]]
+'''
+params = [
+  { name = "args", label = "程序参数", placeholder = "--help" },
+]
+options = [
+  { id = "release", label = "Release 模式", default_enabled = false },
+  { id = "args", label = "传递程序参数", default_enabled = false },
+]
+
+[commands.check_all]
+category = "project"
+title = "格式化并检查"
+description = "执行 cargo fmt 和 cargo clippy"
+danger = false
+template = '''
+cargo fmt && cargo clippy [[fix:--fix]]
+'''
+options = [
+  { id = "fix", label = "自动修复", default_enabled = false },
+]
