@@ -1,10 +1,16 @@
 use anyhow::{Context, Result};
 use std::{
     env,
+    io::{self, Write},
     process::{Command, ExitStatus, Stdio},
 };
 
 pub fn execute_command(command: &str) -> Result<ExitStatus> {
+    println!("{command}");
+    io::stdout()
+        .flush()
+        .context("failed to flush command preview")?;
+
     let mut child = shell_command(command);
     child
         .stdin(Stdio::inherit())

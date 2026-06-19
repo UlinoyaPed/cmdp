@@ -215,6 +215,40 @@ impl App {
         self.clamp_form();
     }
 
+    pub fn select_category(&mut self, idx: usize) {
+        if idx < self.category_ids().len() {
+            self.error = None;
+            self.focus = Focus::Categories;
+            self.category_idx = idx;
+            self.command_idx = 0;
+            self.search_editing = false;
+            self.search_query.clear();
+            self.reset_form();
+        }
+    }
+
+    pub fn select_command(&mut self, idx: usize) {
+        if idx < self.visible_commands().len() {
+            self.error = None;
+            self.focus = Focus::Commands;
+            self.search_editing = false;
+            self.command_idx = idx;
+            self.sync_category_to_current_command();
+            self.reset_form();
+        }
+    }
+
+    pub fn select_form_item(&mut self, idx: usize, activate: bool) {
+        if idx < self.form_len() {
+            self.error = None;
+            self.focus = Focus::Form;
+            self.form_idx = idx;
+            if activate {
+                self.activate();
+            }
+        }
+    }
+
     pub fn move_sel(&mut self, down: bool) {
         self.error = None;
         let delta = if down { 1isize } else { -1 };

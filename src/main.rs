@@ -10,7 +10,7 @@ mod template;
 mod ui;
 use anyhow::Result;
 use crossterm::{
-    event::{poll, read, Event},
+    event::{poll, read, DisableMouseCapture, EnableMouseCapture, Event},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -22,12 +22,16 @@ fn main() -> Result<()> {
     let mut app = app::App::new(cfg);
     enable_raw_mode()?;
     let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen)?;
+    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
     let res = run(&mut terminal, &mut app);
     disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    execute!(
+        terminal.backend_mut(),
+        LeaveAlternateScreen,
+        DisableMouseCapture
+    )?;
     terminal.show_cursor()?;
     res?;
     if let Some(cmd) = app.output {
@@ -40,8 +44,10 @@ fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut app::App
     while !app.should_quit {
         terminal.draw(|f| ui::draw(f, app))?;
         if poll(Duration::from_millis(200))? {
-            if let Event::Key(k) = read()? {
-                event::handle_key(app, k);
+            match read()? {
+                Event::Key(key) => event::handle_key(app, key),
+                Event::Mouse(mouse) => event::handle_mouse(app, mouse, terminal.size()?),
+                Event::Resize(_, _) | Event::FocusGained | Event::FocusLost | Event::Paste(_) => {}
             }
         }
     }

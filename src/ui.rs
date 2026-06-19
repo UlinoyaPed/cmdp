@@ -4,7 +4,16 @@ use crate::{
 };
 use ratatui::{prelude::*, widgets::*};
 
-pub fn draw(f: &mut Frame, app: &App) {
+#[derive(Debug, Clone, Copy)]
+pub struct UiAreas {
+    pub header: Rect,
+    pub categories: Rect,
+    pub commands: Rect,
+    pub form: Rect,
+    pub preview: Rect,
+}
+
+pub fn areas(size: Rect) -> UiAreas {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -12,10 +21,7 @@ pub fn draw(f: &mut Frame, app: &App) {
             Constraint::Min(10),
             Constraint::Length(7),
         ])
-        .split(f.size());
-
-    draw_header(f, app, chunks[0]);
-
+        .split(size);
     let cols = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
@@ -24,9 +30,23 @@ pub fn draw(f: &mut Frame, app: &App) {
             Constraint::Percentage(48),
         ])
         .split(chunks[1]);
-    draw_categories(f, app, cols[0]);
-    draw_commands(f, app, cols[1]);
-    draw_form(f, app, cols[2]);
+
+    UiAreas {
+        header: chunks[0],
+        categories: cols[0],
+        commands: cols[1],
+        form: cols[2],
+        preview: chunks[2],
+    }
+}
+
+pub fn draw(f: &mut Frame, app: &App) {
+    let areas = areas(f.size());
+
+    draw_header(f, app, areas.header);
+    draw_categories(f, app, areas.categories);
+    draw_commands(f, app, areas.commands);
+    draw_form(f, app, areas.form);
 
     let mut preview = app.preview_text();
     if let Some(error) = &app.error {
@@ -39,7 +59,7 @@ pub fn draw(f: &mut Frame, app: &App) {
             .block(
                 block("预览  Ctrl+y 执行", false).border_style(Style::default().fg(Color::Blue)),
             ),
-        chunks[2],
+        areas.preview,
     );
 }
 
@@ -79,7 +99,7 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect) {
             },
         ),
         Span::styled(
-            " Tab切换  Ctrl+y执行  q退出 ",
+            " Tab/←→切换  Ctrl+y执行  q退出 ",
             Style::default().fg(Color::DarkGray),
         ),
     ]);
@@ -266,7 +286,7 @@ fn param_item(
 ) -> ListItem<'static> {
     let editing = app.editing && selected;
     let raw_value = if editing {
-        format!("{}|", app.edit_buffer)
+        format!("{}▌", app.edit_buffer)
     } else if secret && !value.is_empty() {
         "******".to_string()
     } else {
