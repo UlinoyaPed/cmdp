@@ -595,10 +595,11 @@ mod tests {
         assert!(!app.should_quit);
         assert!(app.output.is_none());
         assert!(app.danger_confirmation.is_some());
-        assert!(app
-            .error
-            .as_deref()
-            .is_some_and(|error| error.contains("危险命令")));
+        assert!(
+            app.error
+                .as_deref()
+                .is_some_and(|error| error.contains("危险命令"))
+        );
 
         app.confirm();
 

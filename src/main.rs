@@ -10,11 +10,11 @@ mod template;
 mod ui;
 use anyhow::Result;
 use crossterm::{
-    event::{poll, read, DisableMouseCapture, EnableMouseCapture, Event},
+    event::{DisableMouseCapture, EnableMouseCapture, Event, poll, read},
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
-use ratatui::{backend::CrosstermBackend, Terminal};
+use ratatui::{Terminal, backend::CrosstermBackend};
 use std::{io, process, time::Duration};
 
 fn main() -> Result<()> {
