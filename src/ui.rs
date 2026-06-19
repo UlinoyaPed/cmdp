@@ -37,7 +37,7 @@ pub fn draw(f: &mut Frame, app: &App) {
             .style(Style::default().fg(Color::White))
             .wrap(Wrap { trim: false })
             .block(
-                block("预览  Ctrl+y 输出", false).border_style(Style::default().fg(Color::Blue)),
+                block("预览  Ctrl+y 执行", false).border_style(Style::default().fg(Color::Blue)),
             ),
         chunks[2],
     );
@@ -79,7 +79,7 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect) {
             },
         ),
         Span::styled(
-            " Tab切换  Ctrl+y输出  q退出 ",
+            " Tab切换  Ctrl+y执行  q退出 ",
             Style::default().fg(Color::DarkGray),
         ),
     ]);

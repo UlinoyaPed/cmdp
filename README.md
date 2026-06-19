@@ -1,12 +1,12 @@
 # cmdp
 
-`cmdp` 是一个基于 ratatui 的命令模板选择 TUI。它只负责从配置文件读取命令模板、选择分类和命令、填写参数、开关可选片段、实时预览最终命令，然后退出 TUI 并把命令打印回原始终端。
+`cmdp` 是一个基于 ratatui 的命令模板选择 TUI。它从配置文件读取命令模板、选择分类和命令、填写参数、开关可选片段、实时预览最终命令。确认后，程序会先退出 TUI、恢复终端状态，然后在原终端中执行最终生成的命令。
 
-`cmdp` 不会执行生成的命令。
+执行命令前会完整关闭 raw mode、退出 alternate screen，并恢复光标显示，因此命令输出会直接显示在原终端里。
 
 ## 项目结构
 
-- `src/main.rs`: 程序入口、终端初始化、事件循环、退出后输出命令
+- `src/main.rs`: 程序入口、终端初始化、事件循环、恢复终端后触发命令执行
 - `src/app.rs`: TUI 状态、焦点、选择项、搜索、参数值、可选项状态
 - `src/ui.rs`: ratatui 布局和界面绘制
 - `src/event.rs`: crossterm 键盘事件处理
@@ -15,7 +15,7 @@
 - `src/parser.rs`: 模板语法解析和参数使用分析
 - `src/renderer.rs`: 根据参数和可选项渲染最终命令
 - `src/preview.rs`: 预览文本、缺失参数提示、危险提示
-- `src/output.rs`: 退出 TUI 后打印最终命令
+- `src/output.rs`: 使用继承的 `stdin`、`stdout`、`stderr` 启动 shell 子进程执行最终命令
 - `src/error.rs`: 配置、模板、渲染相关错误
 - `examples/commands.toml`: 示例全局配置
 - `.cmdp.toml`: 示例本地项目配置
@@ -35,8 +35,8 @@ cargo run
 - `Enter`: 进入参数编辑，或确认当前表单项
 - `Space`: 切换可选片段，或切换 `choices` 参数值
 - `Ctrl+r`: 重新加载配置
-- `Ctrl+y`: 确认当前命令，退出 TUI，并只打印最终命令
-- `q`: 退出，不输出命令
+- `Ctrl+y`: 确认当前命令，退出 TUI，并在原终端执行最终命令
+- `q`: 退出，不执行命令
 
 ## 配置文件位置
 
@@ -146,7 +146,7 @@ options = [
 ## 模板语法
 
 - `{{name}}`: 用户输入占位符
-- `<<...>>`: 必填片段，片段内参数缺失时不能确认输出
+- `<<...>>`: 必填片段，片段内参数缺失时不能确认执行
 - `[[...]]`: 匿名可选片段，程序会生成内部 ID，默认关闭
 - `[[id:...]]`: 命名可选片段，可和 `options = [...]` 对应
 
@@ -170,10 +170,12 @@ cargo test
 cargo clippy --all-targets
 ```
 
-## 输出示例
+## 执行示例
 
-确认命令后，TUI 会退出并只打印最终命令本身：
+确认命令后，TUI 会退出，然后在原终端执行最终命令。例如预览区生成：
 
 ```sh
 find . -type f -size +1G -printf '%s\t%p\n' | sort -nr | numfmt --field=1 --to=iec
 ```
+
+按 `Ctrl+y` 后，`cmdp` 会用当前 shell 执行这条命令，并把子进程的 `stdin`、`stdout`、`stderr` 直接继承到当前终端。

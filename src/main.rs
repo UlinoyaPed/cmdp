@@ -15,7 +15,7 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use ratatui::{backend::CrosstermBackend, Terminal};
-use std::{io, time::Duration};
+use std::{io, process, time::Duration};
 
 fn main() -> Result<()> {
     let cfg = config::load()?;
@@ -31,7 +31,8 @@ fn main() -> Result<()> {
     terminal.show_cursor()?;
     res?;
     if let Some(cmd) = app.output {
-        output::print_command(&cmd);
+        let status = output::execute_command(&cmd)?;
+        process::exit(status.code().unwrap_or(1));
     }
     Ok(())
 }
