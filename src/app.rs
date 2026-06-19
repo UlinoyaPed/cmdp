@@ -11,7 +11,25 @@ pub enum Focus {
     Categories,
     Commands,
     Form,
-    Preview,
+}
+
+#[derive(Debug, Clone)]
+pub enum FormItem {
+    Param {
+        name: String,
+        label: String,
+        value: String,
+        placeholder: Option<String>,
+        help: Option<String>,
+        secret: bool,
+        choices: Vec<String>,
+        required: bool,
+    },
+    Option {
+        id: String,
+        label: String,
+        enabled: bool,
+    },
 }
 
 pub struct App {
@@ -21,6 +39,8 @@ pub struct App {
     pub form_idx: usize,
     pub focus: Focus,
     pub editing: bool,
+    pub search_editing: bool,
+    pub search_query: String,
     pub edit_buffer: String,
     pub values: HashMap<String, String>,
     pub enabled: HashSet<String>,
@@ -38,6 +58,8 @@ impl App {
             form_idx: 0,
             focus: Focus::Categories,
             editing: false,
+            search_editing: false,
+            search_query: String::new(),
             edit_buffer: String::new(),
             values: HashMap::new(),
             enabled: HashSet::new(),
@@ -48,24 +70,31 @@ impl App {
         app.reset_form();
         app
     }
+
     pub fn reload(&mut self) {
         match config::load() {
             Ok(c) => {
                 self.config = c;
                 self.category_idx = 0;
                 self.command_idx = 0;
+                self.editing = false;
+                self.search_editing = false;
+                self.search_query.clear();
                 self.reset_form();
                 self.error = None;
             }
             Err(e) => self.error = Some(e.to_string()),
         }
     }
+
     pub fn category_ids(&self) -> Vec<&String> {
         self.config.categories.keys().collect()
     }
+
     pub fn current_category_id(&self) -> Option<&String> {
         self.category_ids().get(self.category_idx).copied()
     }
+
     pub fn commands_in_category(&self) -> Vec<(&String, &Command)> {
         let cat = self.current_category_id().cloned();
         self.config
@@ -74,15 +103,31 @@ impl App {
             .filter(|(_, c)| Some(&c.category) == cat.as_ref())
             .collect()
     }
+
+    pub fn visible_commands(&self) -> Vec<(&String, &Command)> {
+        let query = self.search_query.trim().to_lowercase();
+        if query.is_empty() {
+            return self.commands_in_category();
+        }
+
+        self.config
+            .commands
+            .iter()
+            .filter(|(id, cmd)| self.matches_search(id, cmd, &query))
+            .collect()
+    }
+
     pub fn current_command(&self) -> Option<(&String, &Command)> {
-        self.commands_in_category()
+        self.visible_commands()
             .get(self.command_idx)
             .map(|(id, c)| (*id, *c))
     }
+
     pub fn parsed(&self) -> Option<ParsedTemplate> {
         self.current_command()
             .and_then(|(_, c)| parser::parse_template(&c.template).ok())
     }
+
     pub fn reset_form(&mut self) {
         self.values.clear();
         self.enabled.clear();
@@ -101,86 +146,146 @@ impl App {
             }
         }
     }
-    pub fn form_len(&self) -> usize {
-        self.current_command()
-            .map(|(_, c)| c.params.len() + c.options.len())
-            .unwrap_or(0)
+
+    pub fn form_items(&self) -> Vec<FormItem> {
+        let Some((_, cmd)) = self.current_command() else {
+            return Vec::new();
+        };
+        let Ok(parsed) = parser::parse_template(&cmd.template) else {
+            return Vec::new();
+        };
+        let usage = parser::analyze_template(&parsed);
+        let mut items = Vec::new();
+        let mut shown_params = HashSet::new();
+
+        for name in ordered_param_names(&usage.required_params, cmd) {
+            push_param_item(
+                &mut items,
+                &mut shown_params,
+                cmd,
+                &self.values,
+                &name,
+                true,
+            );
+        }
+
+        for optional in usage.optional {
+            let option = cmd.options.iter().find(|o| o.id == optional.id);
+            let label = option
+                .and_then(|o| o.label.clone())
+                .unwrap_or_else(|| optional.id.clone());
+            let enabled = self.enabled.contains(&optional.id);
+            items.push(FormItem::Option {
+                id: optional.id.clone(),
+                label,
+                enabled,
+            });
+
+            if enabled {
+                for name in ordered_param_names(&optional.params, cmd) {
+                    push_param_item(
+                        &mut items,
+                        &mut shown_params,
+                        cmd,
+                        &self.values,
+                        &name,
+                        false,
+                    );
+                }
+            }
+        }
+
+        items
     }
+
+    pub fn form_len(&self) -> usize {
+        self.form_items().len()
+    }
+
     pub fn next_focus(&mut self, rev: bool) {
+        self.error = None;
         self.focus = match (self.focus, rev) {
             (Focus::Categories, false) => Focus::Commands,
             (Focus::Commands, false) => Focus::Form,
-            (Focus::Form, false) => Focus::Preview,
-            (Focus::Preview, false) => Focus::Categories,
-            (Focus::Categories, true) => Focus::Preview,
+            (Focus::Form, false) => Focus::Categories,
+            (Focus::Categories, true) => Focus::Form,
             (Focus::Commands, true) => Focus::Categories,
             (Focus::Form, true) => Focus::Commands,
-            (Focus::Preview, true) => Focus::Form,
         };
+        self.clamp_form();
     }
+
     pub fn move_sel(&mut self, down: bool) {
+        self.error = None;
         let delta = if down { 1isize } else { -1 };
         match self.focus {
             Focus::Categories => {
                 let n = self.category_ids().len();
                 self.category_idx = step(self.category_idx, n, delta);
                 self.command_idx = 0;
+                self.search_editing = false;
+                self.search_query.clear();
                 self.reset_form();
             }
             Focus::Commands => {
-                let n = self.commands_in_category().len();
+                let n = self.visible_commands().len();
                 self.command_idx = step(self.command_idx, n, delta);
+                self.sync_category_to_current_command();
                 self.reset_form();
             }
             Focus::Form => {
                 self.form_idx = step(self.form_idx, self.form_len(), delta);
             }
-            Focus::Preview => {}
         }
     }
+
     pub fn activate(&mut self) {
-        if self.focus == Focus::Form {
-            let param = self
-                .current_command()
-                .and_then(|(_, cmd)| cmd.params.get(self.form_idx).cloned());
-            if let Some(p) = param {
-                if let Some(choices) = &p.choices {
-                    if !choices.is_empty() {
-                        cycle_choice(&mut self.values, &p.name, choices);
-                        return;
-                    }
+        self.error = None;
+        self.search_editing = false;
+        match self.focus {
+            Focus::Categories => self.focus = Focus::Commands,
+            Focus::Commands => self.focus = Focus::Form,
+            Focus::Form => match self.form_items().get(self.form_idx).cloned() {
+                Some(FormItem::Param { name, choices, .. }) if choices.is_empty() => {
+                    self.editing = true;
+                    self.edit_buffer = self.values.get(&name).cloned().unwrap_or_default();
                 }
-                self.editing = true;
-                self.edit_buffer = self.values.get(&p.name).cloned().unwrap_or_default();
-            }
+                Some(FormItem::Param { name, choices, .. }) => {
+                    cycle_choice(&mut self.values, &name, &choices);
+                }
+                Some(FormItem::Option { id, .. }) => {
+                    self.toggle_option(&id);
+                }
+                None => {}
+            },
         }
     }
 
     pub fn toggle(&mut self) {
-        let opt_id = self.current_command().and_then(|(_, cmd)| {
-            if self.focus == Focus::Form && self.form_idx >= cmd.params.len() {
-                cmd.options
-                    .get(self.form_idx - cmd.params.len())
-                    .map(|o| o.id.clone())
-            } else {
-                None
+        self.error = None;
+        self.search_editing = false;
+        match self.form_items().get(self.form_idx).cloned() {
+            Some(FormItem::Option { id, .. }) if self.focus == Focus::Form => {
+                self.toggle_option(&id);
             }
-        });
-        if let Some(id) = opt_id {
-            if !self.enabled.remove(&id) {
-                self.enabled.insert(id);
+            Some(FormItem::Param { name, choices, .. })
+                if self.focus == Focus::Form && !choices.is_empty() =>
+            {
+                cycle_choice(&mut self.values, &name, &choices);
             }
+            _ => {}
         }
+        self.clamp_form();
     }
 
     pub fn commit_edit(&mut self) {
-        if let Some((_, cmd)) = self.current_command() {
-            if let Some(p) = cmd.params.get(self.form_idx) {
-                self.values.insert(p.name.clone(), self.edit_buffer.clone());
-            }
+        if let Some(FormItem::Param { name, .. }) = self.form_items().get(self.form_idx).cloned() {
+            self.values.insert(name, self.edit_buffer.clone());
         }
         self.editing = false;
+        self.error = None;
     }
+
     pub fn render(&self, mask: bool) -> Option<renderer::Rendered> {
         let tpl = self.parsed()?;
         let secrets = self
@@ -200,12 +305,53 @@ impl App {
             &secrets,
         ))
     }
+
     pub fn preview_text(&self) -> String {
         match (self.current_command(), self.render(true)) {
             (Some((_, c)), Some(r)) => preview::preview(c, &r),
             _ => "没有可用命令".into(),
         }
     }
+
+    pub fn begin_search(&mut self) {
+        self.error = None;
+        self.focus = Focus::Commands;
+        self.search_editing = true;
+        self.command_idx = 0;
+        self.sync_category_to_current_command();
+        self.reset_form();
+    }
+
+    pub fn push_search_char(&mut self, c: char) {
+        self.error = None;
+        self.search_query.push(c);
+        self.search_changed();
+    }
+
+    pub fn pop_search_char(&mut self) {
+        self.error = None;
+        self.search_query.pop();
+        self.search_changed();
+    }
+
+    pub fn clear_search(&mut self) {
+        self.error = None;
+        self.search_editing = false;
+        if !self.search_query.is_empty() {
+            self.search_query.clear();
+            self.command_idx = 0;
+            self.reset_form();
+        }
+    }
+
+    pub fn finish_search(&mut self) {
+        self.search_editing = false;
+    }
+
+    pub fn search_active(&self) -> bool {
+        self.search_editing || !self.search_query.is_empty()
+    }
+
     pub fn confirm(&mut self) {
         if let Some(r) = self.render(false) {
             if r.missing.is_empty() {
@@ -216,7 +362,108 @@ impl App {
             }
         }
     }
+
+    fn toggle_option(&mut self, id: &str) {
+        if !self.enabled.remove(id) {
+            self.enabled.insert(id.to_string());
+        }
+    }
+
+    fn search_changed(&mut self) {
+        self.command_idx = 0;
+        self.sync_category_to_current_command();
+        self.reset_form();
+    }
+
+    fn sync_category_to_current_command(&mut self) {
+        let category = self.current_command().map(|(_, cmd)| cmd.category.clone());
+        if let Some(category) = category {
+            if let Some(idx) = self
+                .category_ids()
+                .iter()
+                .position(|id| id.as_str() == category)
+            {
+                self.category_idx = idx;
+            }
+        }
+    }
+
+    fn matches_search(&self, id: &str, cmd: &Command, query: &str) -> bool {
+        let category_alias = self
+            .config
+            .categories
+            .get(&cmd.category)
+            .and_then(|category| category.alias.as_deref())
+            .unwrap_or_default();
+        let haystack = format!(
+            "{} {} {} {} {} {}",
+            id,
+            cmd.title.as_deref().unwrap_or_default(),
+            cmd.description.as_deref().unwrap_or_default(),
+            cmd.category,
+            category_alias,
+            cmd.source.label()
+        )
+        .to_lowercase();
+        haystack.contains(query)
+    }
+
+    fn clamp_form(&mut self) {
+        let len = self.form_len();
+        if len == 0 {
+            self.form_idx = 0;
+        } else if self.form_idx >= len {
+            self.form_idx = len - 1;
+        }
+    }
 }
+
+fn push_param_item(
+    items: &mut Vec<FormItem>,
+    shown: &mut HashSet<String>,
+    cmd: &Command,
+    values: &HashMap<String, String>,
+    name: &str,
+    required: bool,
+) {
+    if !shown.insert(name.to_string()) {
+        return;
+    }
+    let param = cmd.params.iter().find(|p| p.name == name);
+    let value = values
+        .get(name)
+        .cloned()
+        .or_else(|| param.and_then(|p| p.default.clone()))
+        .unwrap_or_default();
+    items.push(FormItem::Param {
+        name: name.to_string(),
+        label: param
+            .and_then(|p| p.label.clone())
+            .unwrap_or_else(|| name.to_string()),
+        value,
+        placeholder: param.and_then(|p| p.placeholder.clone()),
+        help: param.and_then(|p| p.help.clone()),
+        secret: param.is_some_and(|p| p.secret),
+        choices: param.and_then(|p| p.choices.clone()).unwrap_or_default(),
+        required,
+    });
+}
+
+fn ordered_param_names(names: &[String], cmd: &Command) -> Vec<String> {
+    let mut ordered = Vec::new();
+    for param in &cmd.params {
+        if names.iter().any(|name| name == &param.name) {
+            ordered.push(param.name.clone());
+        }
+    }
+    for name in names {
+        if !ordered.iter().any(|existing| existing == name) {
+            ordered.push(name.clone());
+        }
+    }
+    ordered
+}
+
 fn step(i: usize, n: usize, d: isize) -> usize {
     if n == 0 {
         0
@@ -224,10 +471,116 @@ fn step(i: usize, n: usize, d: isize) -> usize {
         ((i as isize + d).rem_euclid(n as isize)) as usize
     }
 }
+
 fn cycle_choice(values: &mut HashMap<String, String>, name: &str, choices: &[String]) {
     let cur = values.get(name);
     let pos = cur
         .and_then(|v| choices.iter().position(|c| c == v))
         .unwrap_or(choices.len() - 1);
     values.insert(name.to_string(), choices[(pos + 1) % choices.len()].clone());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use indexmap::IndexMap;
+
+    #[test]
+    fn search_filters_commands_across_categories() {
+        let mut app = App::new(test_config());
+
+        app.begin_search();
+        for ch in "cargo".chars() {
+            app.push_search_char(ch);
+        }
+
+        let command_ids: Vec<_> = app
+            .visible_commands()
+            .into_iter()
+            .map(|(id, _)| id.as_str())
+            .collect();
+        assert_eq!(command_ids, vec!["cargo_check"]);
+        assert_eq!(app.current_category_id().map(String::as_str), Some("dev"));
+    }
+
+    #[test]
+    fn clear_search_returns_to_selected_category_commands() {
+        let mut app = App::new(test_config());
+        app.begin_search();
+        for ch in "run".chars() {
+            app.push_search_char(ch);
+        }
+
+        app.clear_search();
+
+        assert!(!app.search_active());
+        assert_eq!(
+            app.current_category_id().map(String::as_str),
+            Some("project")
+        );
+        let command_ids: Vec<_> = app
+            .visible_commands()
+            .into_iter()
+            .map(|(id, _)| id.as_str())
+            .collect();
+        assert_eq!(command_ids, vec!["run"]);
+    }
+
+    fn test_config() -> Config {
+        let mut categories = IndexMap::new();
+        categories.insert(
+            "file".to_string(),
+            Category {
+                alias: Some("文件管理".to_string()),
+                source: Source::Global,
+            },
+        );
+        categories.insert(
+            "dev".to_string(),
+            Category {
+                alias: Some("开发工具".to_string()),
+                source: Source::Global,
+            },
+        );
+        categories.insert(
+            "project".to_string(),
+            Category {
+                alias: Some("当前项目".to_string()),
+                source: Source::Local,
+            },
+        );
+
+        let mut commands = IndexMap::new();
+        commands.insert(
+            "find_large".to_string(),
+            command("file", "查找大文件", "find <<{{path}}>>", Source::Global),
+        );
+        commands.insert(
+            "cargo_check".to_string(),
+            command("dev", "Cargo Check", "cargo check", Source::Global),
+        );
+        commands.insert(
+            "run".to_string(),
+            command("project", "运行项目", "cargo run", Source::Local),
+        );
+
+        Config {
+            categories,
+            commands,
+            sources: vec!["global:/tmp/commands.toml".to_string()],
+        }
+    }
+
+    fn command(category: &str, title: &str, template: &str, source: Source) -> Command {
+        Command {
+            category: category.to_string(),
+            title: Some(title.to_string()),
+            description: None,
+            danger: false,
+            template: template.to_string(),
+            params: Vec::new(),
+            options: Vec::new(),
+            source,
+        }
+    }
 }

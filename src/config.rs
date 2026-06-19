@@ -1,6 +1,7 @@
 use crate::{error::CmdpError, parser, template::*};
 use anyhow::{Context, Result};
 use directories::BaseDirs;
+use std::collections::HashSet;
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -15,6 +16,9 @@ pub fn ensure_example_global() -> Result<()> {
     let path = global_path()?;
     if !path.exists() {
         if let Some(parent) = path.parent() {
+            if parent.exists() {
+                return Ok(());
+            }
             fs::create_dir_all(parent)?;
         }
         let sample = include_str!("../examples/commands.toml");
@@ -80,7 +84,11 @@ fn merge_file(merged: &mut Config, path: &Path, source: Source) -> Result<()> {
 }
 
 fn validate(cfg: &Config) -> Result<()> {
+    for id in cfg.categories.keys() {
+        validate_id("category", id)?;
+    }
     for (id, cmd) in &cfg.commands {
+        validate_id("command", id)?;
         if !cfg.categories.contains_key(&cmd.category) {
             return Err(CmdpError::Config(format!(
                 "command '{id}' references missing category '{}'",
@@ -88,10 +96,50 @@ fn validate(cfg: &Config) -> Result<()> {
             ))
             .into());
         }
-        parser::parse_template(&cmd.template).map_err(|reason| CmdpError::Template {
-            command_id: id.clone(),
-            reason,
-        })?;
+        let parsed =
+            parser::parse_template(&cmd.template).map_err(|reason| CmdpError::Template {
+                command_id: id.clone(),
+                reason,
+            })?;
+        let usage = parser::analyze_template(&parsed);
+        let optional_ids: HashSet<_> = usage.optional.iter().map(|opt| opt.id.as_str()).collect();
+        let mut param_names = HashSet::new();
+        for param in &cmd.params {
+            validate_id("parameter", &param.name)?;
+            if !param_names.insert(param.name.as_str()) {
+                return Err(CmdpError::Config(format!(
+                    "command '{id}' defines duplicate parameter '{}'",
+                    param.name
+                ))
+                .into());
+            }
+        }
+        let mut option_ids = HashSet::new();
+        for option in &cmd.options {
+            validate_id("option", &option.id)?;
+            if !option_ids.insert(option.id.as_str()) {
+                return Err(CmdpError::Config(format!(
+                    "command '{id}' defines duplicate option '{}'",
+                    option.id
+                ))
+                .into());
+            }
+            if !optional_ids.contains(option.id.as_str()) {
+                return Err(CmdpError::Config(format!(
+                    "command '{id}' option '{}' does not match any optional template fragment",
+                    option.id
+                ))
+                .into());
+            }
+        }
     }
     Ok(())
+}
+
+fn validate_id(kind: &str, id: &str) -> Result<()> {
+    if parser::is_identifier(id) {
+        Ok(())
+    } else {
+        Err(CmdpError::Config(format!("invalid {kind} id '{id}'")).into())
+    }
 }
