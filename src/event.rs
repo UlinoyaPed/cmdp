@@ -51,7 +51,9 @@ pub fn handle_mouse(app: &mut App, mouse: MouseEvent, screen: Rect) {
     let areas = ui::areas(screen);
     match mouse.kind {
         MouseEventKind::Down(MouseButton::Left) => {
-            if let Some(idx) = item_index(areas.categories, mouse.column, mouse.row) {
+            if contains(areas.execute_button, mouse.column, mouse.row) {
+                app.confirm();
+            } else if let Some(idx) = item_index(areas.categories, mouse.column, mouse.row) {
                 app.select_category(idx);
             } else if let Some(idx) = item_index(areas.commands, mouse.column, mouse.row) {
                 app.select_command(idx);

@@ -7,6 +7,7 @@ use ratatui::{prelude::*, widgets::*};
 #[derive(Debug, Clone, Copy)]
 pub struct UiAreas {
     pub header: Rect,
+    pub execute_button: Rect,
     pub categories: Rect,
     pub commands: Rect,
     pub form: Rect,
@@ -33,6 +34,7 @@ pub fn areas(size: Rect) -> UiAreas {
 
     UiAreas {
         header: chunks[0],
+        execute_button: execute_button_area(chunks[0]),
         categories: cols[0],
         commands: cols[1],
         form: cols[2],
@@ -44,6 +46,7 @@ pub fn draw(f: &mut Frame, app: &App) {
     let areas = areas(f.size());
 
     draw_header(f, app, areas.header);
+    draw_execute_button(f, app, areas.execute_button);
     draw_categories(f, app, areas.categories);
     draw_commands(f, app, areas.commands);
     draw_form(f, app, areas.form);
@@ -99,7 +102,7 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect) {
             },
         ),
         Span::styled(
-            " Tab/←→切换  Ctrl+y执行  q退出 ",
+            " Tab/←→切换  Ctrl+y执行  q退出",
             Style::default().fg(Color::DarkGray),
         ),
     ]);
@@ -109,6 +112,33 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect) {
                 .borders(Borders::ALL)
                 .border_style(Style::default().fg(Color::DarkGray)),
         ),
+        area,
+    );
+}
+
+fn draw_execute_button(f: &mut Frame, app: &App, area: Rect) {
+    let pending = app.danger_confirmation.is_some();
+    let (label, style) = if pending {
+        (
+            " 确认 ",
+            Style::default()
+                .fg(Color::White)
+                .bg(Color::Red)
+                .add_modifier(Modifier::BOLD),
+        )
+    } else {
+        (
+            " 执行 ",
+            Style::default()
+                .fg(Color::Black)
+                .bg(Color::LightGreen)
+                .add_modifier(Modifier::BOLD),
+        )
+    };
+    f.render_widget(
+        Paragraph::new(label)
+            .alignment(Alignment::Center)
+            .style(style),
         area,
     );
 }
@@ -390,5 +420,17 @@ fn truncate(value: &str, max_chars: usize) -> String {
         format!("{truncated}...")
     } else {
         truncated
+    }
+}
+
+fn execute_button_area(header: Rect) -> Rect {
+    let width = 8.min(header.width.saturating_sub(2));
+    Rect {
+        x: header
+            .x
+            .saturating_add(header.width.saturating_sub(width + 2)),
+        y: header.y.saturating_add(1),
+        width,
+        height: 1,
     }
 }

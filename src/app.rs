@@ -47,6 +47,7 @@ pub struct App {
     pub should_quit: bool,
     pub output: Option<String>,
     pub error: Option<String>,
+    pub danger_confirmation: Option<String>,
 }
 
 impl App {
@@ -66,6 +67,7 @@ impl App {
             should_quit: false,
             output: None,
             error: None,
+            danger_confirmation: None,
         };
         app.reset_form();
         app
@@ -82,6 +84,7 @@ impl App {
                 self.search_query.clear();
                 self.reset_form();
                 self.error = None;
+                self.danger_confirmation = None;
             }
             Err(e) => self.error = Some(e.to_string()),
         }
@@ -218,6 +221,7 @@ impl App {
     pub fn select_category(&mut self, idx: usize) {
         if idx < self.category_ids().len() {
             self.error = None;
+            self.danger_confirmation = None;
             self.focus = Focus::Categories;
             self.category_idx = idx;
             self.command_idx = 0;
@@ -230,6 +234,7 @@ impl App {
     pub fn select_command(&mut self, idx: usize) {
         if idx < self.visible_commands().len() {
             self.error = None;
+            self.danger_confirmation = None;
             self.focus = Focus::Commands;
             self.search_editing = false;
             self.command_idx = idx;
@@ -241,6 +246,7 @@ impl App {
     pub fn select_form_item(&mut self, idx: usize, activate: bool) {
         if idx < self.form_len() {
             self.error = None;
+            self.danger_confirmation = None;
             self.focus = Focus::Form;
             self.form_idx = idx;
             if activate {
@@ -251,6 +257,7 @@ impl App {
 
     pub fn move_sel(&mut self, down: bool) {
         self.error = None;
+        self.danger_confirmation = None;
         let delta = if down { 1isize } else { -1 };
         match self.focus {
             Focus::Categories => {
@@ -275,6 +282,7 @@ impl App {
 
     pub fn activate(&mut self) {
         self.error = None;
+        self.danger_confirmation = None;
         self.search_editing = false;
         match self.focus {
             Focus::Categories => self.focus = Focus::Commands,
@@ -297,6 +305,7 @@ impl App {
 
     pub fn toggle(&mut self) {
         self.error = None;
+        self.danger_confirmation = None;
         self.search_editing = false;
         match self.form_items().get(self.form_idx).cloned() {
             Some(FormItem::Option { id, .. }) if self.focus == Focus::Form => {
@@ -318,6 +327,7 @@ impl App {
         }
         self.editing = false;
         self.error = None;
+        self.danger_confirmation = None;
     }
 
     pub fn render(&self, mask: bool) -> Option<renderer::Rendered> {
@@ -358,18 +368,21 @@ impl App {
 
     pub fn push_search_char(&mut self, c: char) {
         self.error = None;
+        self.danger_confirmation = None;
         self.search_query.push(c);
         self.search_changed();
     }
 
     pub fn pop_search_char(&mut self) {
         self.error = None;
+        self.danger_confirmation = None;
         self.search_query.pop();
         self.search_changed();
     }
 
     pub fn clear_search(&mut self) {
         self.error = None;
+        self.danger_confirmation = None;
         self.search_editing = false;
         if !self.search_query.is_empty() {
             self.search_query.clear();
@@ -387,14 +400,27 @@ impl App {
     }
 
     pub fn confirm(&mut self) {
-        if let Some(r) = self.render(false) {
-            if r.missing.is_empty() {
-                self.output = Some(r.text);
-                self.should_quit = true;
-            } else {
-                self.error = Some(format!("缺失参数：{}", r.missing.join(", ")));
-            }
+        let Some(rendered) = self.render(false) else {
+            return;
+        };
+        if !rendered.missing.is_empty() {
+            self.danger_confirmation = None;
+            self.error = Some(format!("缺失参数：{}", rendered.missing.join(", ")));
+            return;
         }
+
+        if self
+            .current_command()
+            .is_some_and(|(_, command)| command.danger)
+            && self.danger_confirmation.as_deref() != Some(rendered.text.as_str())
+        {
+            self.danger_confirmation = Some(rendered.text);
+            self.error = Some("危险命令：再次 Ctrl+y 或点击执行确认".to_string());
+            return;
+        }
+
+        self.output = Some(rendered.text);
+        self.should_quit = true;
     }
 
     fn toggle_option(&mut self, id: &str) {
@@ -560,6 +586,27 @@ mod tests {
         assert_eq!(command_ids, vec!["run"]);
     }
 
+    #[test]
+    fn dangerous_commands_require_second_confirmation() {
+        let mut app = App::new(test_config());
+        app.select_command(1);
+
+        app.confirm();
+
+        assert!(!app.should_quit);
+        assert!(app.output.is_none());
+        assert!(app.danger_confirmation.is_some());
+        assert!(app
+            .error
+            .as_deref()
+            .is_some_and(|error| error.contains("危险命令")));
+
+        app.confirm();
+
+        assert!(app.should_quit);
+        assert_eq!(app.output.as_deref(), Some("rm -rf ./target"));
+    }
+
     fn test_config() -> Config {
         let mut categories = IndexMap::new();
         categories.insert(
@@ -590,6 +637,10 @@ mod tests {
             command("file", "查找大文件", "find <<{{path}}>>", Source::Global),
         );
         commands.insert(
+            "clean_target".to_string(),
+            dangerous_command("file", "删除 target", "rm -rf ./target", Source::Global),
+        );
+        commands.insert(
             "cargo_check".to_string(),
             command("dev", "Cargo Check", "cargo check", Source::Global),
         );
@@ -616,5 +667,11 @@ mod tests {
             options: Vec::new(),
             source,
         }
+    }
+
+    fn dangerous_command(category: &str, title: &str, template: &str, source: Source) -> Command {
+        let mut command = command(category, title, template, source);
+        command.danger = true;
+        command
     }
 }
