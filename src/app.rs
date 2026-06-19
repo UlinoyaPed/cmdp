@@ -437,14 +437,13 @@ impl App {
 
     fn sync_category_to_current_command(&mut self) {
         let category = self.current_command().map(|(_, cmd)| cmd.category.clone());
-        if let Some(category) = category {
-            if let Some(idx) = self
+        if let Some(category) = category
+            && let Some(idx) = self
                 .category_ids()
                 .iter()
                 .position(|id| id.as_str() == category)
-            {
-                self.category_idx = idx;
-            }
+        {
+            self.category_idx = idx;
         }
     }
 

@@ -43,7 +43,7 @@ pub fn areas(size: Rect) -> UiAreas {
 }
 
 pub fn draw(f: &mut Frame, app: &App) {
-    let areas = areas(f.size());
+    let areas = areas(f.area());
 
     draw_header(f, app, areas.header);
     draw_execute_button(f, app, areas.execute_button);

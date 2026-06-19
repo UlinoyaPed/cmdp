@@ -46,7 +46,7 @@ fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut app::App
         if poll(Duration::from_millis(200))? {
             match read()? {
                 Event::Key(key) => event::handle_key(app, key),
-                Event::Mouse(mouse) => event::handle_mouse(app, mouse, terminal.size()?),
+                Event::Mouse(mouse) => event::handle_mouse(app, mouse, terminal.size()?.into()),
                 Event::Resize(_, _) | Event::FocusGained | Event::FocusLost | Event::Paste(_) => {}
             }
         }
