@@ -12,7 +12,7 @@ pub fn global_dir() -> Result<PathBuf> {
     Ok(base.home_dir().join(".config/cmdp"))
 }
 
-pub fn ensure_example_global() -> Result<()> {
+pub fn ensure_global_dir() -> Result<()> {
     let dir = global_dir()?;
     if !dir.exists() {
         fs::create_dir_all(&dir)?;
@@ -39,7 +39,7 @@ pub fn find_local(start: &Path) -> Option<PathBuf> {
 }
 
 pub fn load() -> Result<Config> {
-    ensure_example_global()?;
+    ensure_global_dir()?;
     let mut merged = Config::default();
     for gp in global_paths()? {
         merge_file(&mut merged, &gp, Source::Global)?;
@@ -164,20 +164,17 @@ fn validate_id(kind: &str, id: &str) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::toml_files_in_dir;
+    use super::{merge_file, toml_files_in_dir};
+    use crate::template::{Config, Source};
     use std::{
         fs,
+        path::PathBuf,
         time::{SystemTime, UNIX_EPOCH},
     };
 
     #[test]
     fn toml_files_in_dir_filters_and_sorts_toml_files() {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let dir =
-            std::env::temp_dir().join(format!("cmdp-config-test-{}-{nonce}", std::process::id()));
+        let dir = temp_config_dir();
         fs::create_dir_all(dir.join("nested")).unwrap();
         fs::write(dir.join("b.toml"), "").unwrap();
         fs::write(dir.join("a.toml"), "").unwrap();
@@ -189,5 +186,93 @@ mod tests {
         assert_eq!(paths, vec![dir.join("a.toml"), dir.join("b.toml")]);
 
         fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn global_files_are_sorted_and_local_file_overrides_commands() {
+        let dir = temp_config_dir();
+        fs::create_dir_all(&dir).unwrap();
+        let global_dir = dir.join("global");
+        fs::create_dir_all(&global_dir).unwrap();
+        let global_a = global_dir.join("a.toml");
+        let global_b = global_dir.join("b.toml");
+        let local = dir.join(".cmdp.toml");
+
+        fs::write(
+            &global_b,
+            r#"
+[categories.tools]
+alias = "Tools B"
+
+[commands.shared]
+category = "tools"
+title = "Global B"
+template = "echo global-b"
+"#,
+        )
+        .unwrap();
+        fs::write(
+            &global_a,
+            r#"
+[categories.tools]
+alias = "Tools A"
+
+[commands.first]
+category = "tools"
+title = "First"
+template = "echo first"
+"#,
+        )
+        .unwrap();
+        fs::write(
+            &local,
+            r#"
+[categories.tools]
+alias = "Local Tools"
+
+[commands.shared]
+category = "tools"
+title = "Local Shared"
+template = "echo local"
+"#,
+        )
+        .unwrap();
+
+        let mut merged = Config::default();
+        for path in toml_files_in_dir(&global_dir).unwrap() {
+            merge_file(&mut merged, &path, Source::Global).unwrap();
+        }
+        merge_file(&mut merged, &local, Source::Local).unwrap();
+
+        assert_eq!(
+            merged.sources,
+            vec![
+                format!("global:{}", global_a.display()),
+                format!("global:{}", global_b.display()),
+                format!("local:{}", local.display()),
+            ]
+        );
+        assert_eq!(
+            merged
+                .categories
+                .get("tools")
+                .and_then(|category| category.alias.as_deref()),
+            Some("Local Tools")
+        );
+        let shared = merged.commands.get("shared").unwrap();
+        assert_eq!(shared.title.as_deref(), Some("Local Shared"));
+        assert_eq!(shared.template, "echo local");
+        assert_eq!(shared.source, Source::Local);
+        assert!(merged.commands.contains_key("first"));
+
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    fn temp_config_dir() -> PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!("cmdp-config-test-{}-{nonce}", std::process::id()))
     }
 }

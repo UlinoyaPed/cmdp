@@ -187,6 +187,8 @@ fn draw_commands(f: &mut Frame, app: &App, area: Rect) {
         vec![ListItem::new(Line::from(Span::styled(
             if app.search_active() {
                 "无匹配命令"
+            } else if app.config.commands.is_empty() {
+                "未加载配置"
             } else {
                 "无命令"
             },

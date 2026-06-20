@@ -407,6 +407,10 @@ impl App {
     }
 
     pub fn preview_text(&self) -> String {
+        if self.config.commands.is_empty() {
+            return "没有可用命令\n请在 ~/.config/cmdp/ 添加 .toml 配置，或在当前项目创建 .cmdp.toml"
+                .into();
+        }
         match (self.current_command(), self.render(true)) {
             (Some((_, c)), Some(r)) => preview::preview(c, &r),
             _ => "没有可用命令".into(),
@@ -695,6 +699,16 @@ mod tests {
         app.commit_edit();
 
         assert_eq!(app.values.get("path").map(String::as_str), Some("ac"));
+    }
+
+    #[test]
+    fn empty_config_preview_points_to_config_files() {
+        let app = App::new(Config::default());
+
+        let preview = app.preview_text();
+
+        assert!(preview.contains("~/.config/cmdp/"));
+        assert!(preview.contains(".cmdp.toml"));
     }
 
     fn test_config() -> Config {
