@@ -1,0 +1,122 @@
+[categories.rust]
+alias = "Rust"
+
+[commands.cargo_run]
+category = "rust"
+title = "Cargo Run"
+description = "编译并运行 Rust 项目"
+danger = false
+template = '''
+cargo run [[release:--release]] [[args:-- {{args}}]]
+'''
+
+params = [
+  { name = "args", label = "程序参数", placeholder = "--help" },
+]
+
+options = [
+  { id = "release", label = "Release 模式", default_enabled = false },
+  { id = "args", label = "传入程序参数", default_enabled = false },
+]
+
+[commands.cargo_build]
+category = "rust"
+title = "Cargo Build"
+description = "编译 Rust 项目"
+danger = false
+template = '''
+cargo build [[release:--release]] [[locked:--locked]]
+'''
+
+options = [
+  { id = "release", label = "Release 构建", default_enabled = false },
+  { id = "locked", label = "锁定 Cargo.lock", default_enabled = false },
+]
+
+[commands.cargo_test]
+category = "rust"
+title = "Cargo Test"
+description = "运行 Rust 测试"
+danger = false
+template = '''
+cargo test [[locked:--locked]] [[test_name:{{test_name}}]] [[nocapture:-- --nocapture]]
+'''
+
+params = [
+  { name = "test_name", label = "测试名", placeholder = "parser" },
+]
+
+options = [
+  { id = "locked", label = "锁定 Cargo.lock", default_enabled = false },
+  { id = "test_name", label = "只运行指定测试", default_enabled = false },
+  { id = "nocapture", label = "显示测试输出", default_enabled = false },
+]
+
+[commands.cargo_fmt]
+category = "rust"
+title = "Cargo Fmt"
+description = "格式化或检查 Rust 代码格式"
+danger = false
+template = '''
+cargo fmt [[all:--all]] [[check:-- --check]]
+'''
+
+options = [
+  { id = "all", label = "全部包 --all", default_enabled = true },
+  { id = "check", label = "只检查格式", default_enabled = false },
+]
+
+[commands.cargo_clippy]
+category = "rust"
+title = "Cargo Clippy"
+description = "运行 Rust Clippy 检查"
+danger = false
+template = '''
+cargo clippy [[locked:--locked]] [[all_targets:--all-targets]] [[features:--features "{{features}}"]] [[deny:-- -D warnings]]
+'''
+
+params = [
+  { name = "features", label = "Features", placeholder = "serde,cli" },
+]
+
+options = [
+  { id = "locked", label = "锁定 Cargo.lock", default_enabled = false },
+  { id = "all_targets", label = "检查所有 target", default_enabled = true },
+  { id = "features", label = "启用 features", default_enabled = false },
+  { id = "deny", label = "警告视为错误", default_enabled = true },
+]
+
+[commands.cargo_install]
+category = "rust"
+title = "Cargo Install"
+description = "安装 Rust 命令行工具"
+danger = false
+template = '''
+cargo install <<"{{crate}}">> [[locked:--locked]]
+'''
+
+params = [
+  { name = "crate", label = "Crate 名称", placeholder = "ripgrep" },
+]
+
+options = [
+  { id = "locked", label = "锁定 Cargo.lock", default_enabled = false },
+]
+
+[commands.cargo_install_path]
+category = "rust"
+title = "Cargo Install Path"
+description = "从当前项目路径安装 Cargo 工具"
+danger = false
+template = '''
+cargo install --path .
+'''
+
+[commands.cargo_generate_lockfile]
+category = "rust"
+title = "Cargo Generate Lockfile"
+description = "生成或更新 Cargo.lock"
+danger = false
+template = '''
+cargo generate-lockfile
+'''

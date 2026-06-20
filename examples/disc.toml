@@ -1,0 +1,203 @@
+[categories.disc]
+alias = "光盘刻录"
+
+[commands.disc_list_devices]
+category = "disc"
+title = "查看光驱设备"
+description = "使用 xorriso 查看可用光驱设备"
+danger = false
+template = '''
+xorriso -devices
+'''
+
+[commands.disc_lsblk]
+category = "disc"
+title = "查看块设备"
+description = "查看磁盘、分区、光驱、挂载点"
+danger = false
+template = '''
+lsblk -o NAME,MODEL,SIZE,TYPE,FSTYPE,LABEL,MOUNTPOINTS
+'''
+
+[commands.disc_media_info]
+category = "disc"
+title = "查看光盘信息"
+description = "查看光驱中的光盘目录和介质信息"
+danger = false
+template = '''
+xorriso -outdev <<"{{device}}">> -toc
+'''
+
+params = [
+  { name = "device", label = "光驱设备", default = "/dev/sr0", placeholder = "/dev/sr0" },
+]
+
+
+[commands.disc_dir_summary]
+category = "disc"
+title = "统计待刻录目录"
+description = "统计目录大小、文件数、子目录数"
+danger = false
+template = '''
+echo "目录大小:" && du -sh <<"{{path}}">> && echo "文件数:" && find <<"{{path}}">> -type f | wc -l && echo "目录数:" && find <<"{{path}}">> -type d | wc -l
+'''
+
+params = [
+  { name = "path", label = "目录路径", default = ".", placeholder = "." },
+]
+
+
+[commands.disc_make_iso]
+category = "disc"
+title = "制作 DVD 数据盘 ISO"
+description = "使用 xorriso 生成适合 DVD 数据盘的 ISO 文件"
+danger = false
+template = '''
+xorriso -as mkisofs -iso-level 3 -R -J -joliet-long -V <<"{{label}}">> -o <<"{{output}}">> <<"{{source}}">>
+'''
+
+params = [
+  { name = "source", label = "源目录", default = ".", placeholder = "." },
+  { name = "label", label = "光盘卷标", default = "BACKUP_DVD", placeholder = "BACKUP_202606" },
+  { name = "output", label = "输出 ISO", placeholder = "../BACKUP_202606.iso" },
+]
+
+
+[commands.disc_iso_size]
+category = "disc"
+title = "查看 ISO 大小"
+description = "查看 ISO 文件大小，确认是否超过 DVD 容量"
+danger = false
+template = '''
+ls -lh <<"{{iso}}">> && du -h <<"{{iso}}">>
+'''
+
+params = [
+  { name = "iso", label = "ISO 文件", placeholder = "backup.iso" },
+]
+
+
+[commands.disc_mount_iso]
+category = "disc"
+title = "挂载 ISO 验证"
+description = "只读挂载 ISO，检查里面的文件"
+danger = false
+template = '''
+sudo mkdir -p <<"{{mountpoint}}">> && sudo mount -o loop,ro <<"{{iso}}">> <<"{{mountpoint}}">> && ls -la <<"{{mountpoint}}">>
+'''
+
+params = [
+  { name = "iso", label = "ISO 文件", placeholder = "backup.iso" },
+  { name = "mountpoint", label = "挂载目录", default = "/mnt/iso", placeholder = "/mnt/iso" },
+]
+
+
+[commands.disc_umount_iso]
+category = "disc"
+title = "卸载 ISO"
+description = "卸载之前挂载的 ISO"
+danger = false
+template = '''
+sudo umount <<"{{mountpoint}}">>
+'''
+
+params = [
+  { name = "mountpoint", label = "挂载目录", default = "/mnt/iso", placeholder = "/mnt/iso" },
+]
+
+
+[commands.disc_sha256]
+category = "disc"
+title = "计算校验值"
+description = "计算 ISO 或文件的 SHA256 校验值"
+danger = false
+template = '''
+sha256sum <<"{{file}}">>
+'''
+
+params = [
+  { name = "file", label = "文件路径", placeholder = "backup.iso" },
+]
+
+
+[commands.disc_burn_iso]
+category = "disc"
+title = "刻录 ISO 到 DVD"
+description = "使用 xorriso 将 ISO 刻录到光盘"
+danger = true
+template = '''
+xorriso -as cdrecord -v dev={{device}} [[speed:speed={{speed}}]] [[eject:-eject]] <<"{{iso}}">>
+'''
+
+params = [
+  { name = "device", label = "光驱设备", default = "/dev/sr0", placeholder = "/dev/sr0" },
+  { name = "speed", label = "刻录速度", default = "4", placeholder = "4 / 8 / 16" },
+  { name = "iso", label = "ISO 文件", placeholder = "backup.iso" },
+]
+
+options = [
+  { id = "speed", label = "指定刻录速度", default_enabled = true },
+  { id = "eject", label = "刻录后弹出", default_enabled = true },
+]
+
+
+[commands.disc_verify_after_burn]
+category = "disc"
+title = "挂载光盘检查"
+description = "挂载刻录后的光盘并查看内容"
+danger = false
+template = '''
+sudo mkdir -p <<"{{mountpoint}}">> && sudo mount -o ro <<"{{device}}">> <<"{{mountpoint}}">> && ls -la <<"{{mountpoint}}">>
+'''
+
+params = [
+  { name = "device", label = "光驱设备", default = "/dev/sr0", placeholder = "/dev/sr0" },
+  { name = "mountpoint", label = "挂载目录", default = "/mnt/dvd", placeholder = "/mnt/dvd" },
+]
+
+
+[commands.disc_umount_dvd]
+category = "disc"
+title = "卸载光盘"
+description = "卸载已挂载的光盘"
+danger = false
+template = '''
+sudo umount <<"{{mountpoint}}">>
+'''
+
+params = [
+  { name = "mountpoint", label = "挂载目录", default = "/mnt/dvd", placeholder = "/mnt/dvd" },
+]
+
+
+[commands.disc_eject]
+category = "disc"
+title = "弹出光盘"
+description = "弹出光驱托盘"
+danger = false
+template = '''
+eject <<"{{device}}">>
+'''
+
+params = [
+  { name = "device", label = "光驱设备", default = "/dev/sr0", placeholder = "/dev/sr0" },
+]
+
+
+[commands.disc_blank_rw]
+category = "disc"
+title = "擦除可擦写光盘"
+description = "擦除 DVD-RW / CD-RW 等可擦写光盘"
+danger = true
+template = '''
+xorriso -outdev <<"{{device}}">> -blank [[mode:{{mode}}]]
+'''
+
+params = [
+  { name = "device", label = "光驱设备", default = "/dev/sr0", placeholder = "/dev/sr0" },
+  { name = "mode", label = "擦除模式", default = "fast", choices = ["fast", "all", "as_needed"] },
+]
+
+options = [
+  { id = "mode", label = "擦除模式", default_enabled = true },
+]

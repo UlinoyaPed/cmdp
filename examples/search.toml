@@ -1,0 +1,49 @@
+[categories.search]
+alias = "查找搜索"
+
+[commands.find_file]
+category = "search"
+title = "查找文件"
+description = "使用 find 按文件名、类型、层级查找文件"
+danger = false
+template = '''
+find <<"{{path}}">> [[maxdepth:-maxdepth {{maxdepth}}]] [[kind:-type {{kind}}]] [[name:-name "{{pattern}}"]] [[iname:-iname "{{ipattern}}"]]
+'''
+
+params = [
+  { name = "path", label = "搜索路径", default = ".", placeholder = "." },
+  { name = "kind", label = "类型", default = "f", choices = ["f", "d", "l"] },
+  { name = "pattern", label = "文件名匹配", placeholder = "*.rs" },
+  { name = "ipattern", label = "忽略大小写匹配", placeholder = "*.log" },
+  { name = "maxdepth", label = "最大深度", placeholder = "2" },
+]
+
+options = [
+  { id = "maxdepth", label = "限制目录深度", default_enabled = false },
+  { id = "kind", label = "限制类型", default_enabled = true },
+  { id = "name", label = "按名称匹配", default_enabled = true },
+  { id = "iname", label = "忽略大小写匹配", default_enabled = false },
+]
+
+[commands.grep_text]
+category = "search"
+title = "搜索文本"
+description = "使用 grep 搜索文件内容"
+danger = false
+template = '''
+grep [[recursive:-r]] [[line_number:-n]] [[ignore_case:-i]] [[fixed:-F]] [[exclude_dir:--exclude-dir="{{exclude_dir}}"]] <<"{{query}}">> <<"{{path}}">>
+'''
+
+params = [
+  { name = "query", label = "搜索内容", placeholder = "TODO" },
+  { name = "path", label = "搜索路径", default = ".", placeholder = "." },
+  { name = "exclude_dir", label = "排除目录", default = ".git", placeholder = ".git" },
+]
+
+options = [
+  { id = "recursive", label = "递归搜索 -r", default_enabled = true },
+  { id = "line_number", label = "显示行号 -n", default_enabled = true },
+  { id = "ignore_case", label = "忽略大小写 -i", default_enabled = false },
+  { id = "fixed", label = "固定字符串 -F", default_enabled = false },
+  { id = "exclude_dir", label = "排除目录", default_enabled = true },
+]

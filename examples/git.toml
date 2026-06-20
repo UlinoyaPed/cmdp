@@ -1,0 +1,184 @@
+[categories.git]
+alias = "Git"
+
+[commands.git_status]
+category = "git"
+title = "Git 状态"
+description = "查看当前仓库状态"
+danger = false
+template = '''
+git status
+'''
+
+[commands.git_log]
+category = "git"
+title = "Git 提交历史"
+description = "查看简洁提交历史"
+danger = false
+template = '''
+git log --oneline --graph [[all:--all]] [[decorate:--decorate]]
+'''
+
+options = [
+  { id = "all", label = "显示所有分支 --all", default_enabled = true },
+  { id = "decorate", label = "显示引用 --decorate", default_enabled = true },
+]
+
+[commands.git_diff]
+category = "git"
+title = "Git 查看修改"
+description = "查看工作区或暂存区差异"
+danger = false
+template = '''
+git diff [[staged:--staged]]
+'''
+
+options = [
+  { id = "staged", label = "查看暂存区 --staged", default_enabled = false },
+]
+
+[commands.git_restore_changes]
+category = "git"
+title = "Git 撤销未提交修改"
+description = "还原工作区中指定文件的本地修改"
+danger = true
+template = '''
+git restore <<"{{path}}">>
+'''
+
+params = [
+  { name = "path", label = "文件或目录", default = ".", placeholder = "." },
+]
+
+[commands.git_reset_commit]
+category = "git"
+title = "Git 回退提交"
+description = "将当前分支回退到指定提交"
+danger = true
+template = '''
+git reset [[mode:--{{mode}}]] <<"{{target}}">>
+'''
+
+params = [
+  { name = "target", label = "目标提交", default = "HEAD~1", placeholder = "HEAD~1 / commit hash" },
+  { name = "mode", label = "回退模式", default = "mixed", choices = ["soft", "mixed", "hard"] },
+]
+
+options = [
+  { id = "mode", label = "指定 reset 模式", default_enabled = true },
+]
+
+[commands.git_branch_list]
+category = "git"
+title = "Git 分支列表"
+description = "查看本地或远程分支"
+danger = false
+template = '''
+git branch [[all:-a]] [[verbose:-v]]
+'''
+
+options = [
+  { id = "all", label = "显示远程分支 -a", default_enabled = false },
+  { id = "verbose", label = "显示详细信息 -v", default_enabled = true },
+]
+
+[commands.git_commit]
+category = "git"
+title = "Git 添加并提交"
+description = "git add 指定路径后提交，可选直接传入提交信息"
+danger = false
+template = '''
+git add <<"{{path}}">> && git commit [[sign:-S]] [[signoff:-s]] [[message:-m "{{message}}"]]
+'''
+
+params = [
+  { name = "path", label = "添加路径", default = ".", placeholder = "." },
+  { name = "message", label = "提交信息", placeholder = "update config" },
+]
+
+options = [
+  { id = "sign", label = "使用 GPG 签名 -S", default_enabled = false },
+  { id = "signoff", label = "添加 Signed-off-by -s", default_enabled = false },
+  { id = "message", label = "直接传入提交信息 -m", default_enabled = false },
+]
+
+[commands.git_pull]
+category = "git"
+title = "Git 拉取"
+description = "从远程仓库拉取更新"
+danger = false
+template = '''
+git pull [[rebase:--rebase]]
+'''
+
+options = [
+  { id = "rebase", label = "使用 rebase", default_enabled = false },
+]
+
+[commands.git_push]
+category = "git"
+title = "Git 推送"
+description = "推送到远程仓库"
+danger = false
+template = '''
+git push [[remote:{{remote}}]] [[branch:{{branch}}]]
+'''
+
+params = [
+  { name = "remote", label = "远程名", default = "origin", placeholder = "origin" },
+  { name = "branch", label = "分支名", placeholder = "master / main" },
+]
+
+options = [
+  { id = "remote", label = "指定远程", default_enabled = false },
+  { id = "branch", label = "指定分支", default_enabled = false },
+]
+
+[commands.git_tag_create]
+category = "git"
+title = "Git 创建标签"
+description = "为当前提交或指定提交创建标签，可选直接传入标签说明"
+danger = false
+template = '''
+git tag -a <<"{{tag}}">> [[message:-m "{{message}}"]] [[sign:-s]] [[commit:{{commit}}]]
+'''
+
+params = [
+  { name = "tag", label = "标签名", placeholder = "v0.1.0" },
+  { name = "message", label = "标签说明", placeholder = "release v0.1.0" },
+  { name = "commit", label = "目标提交", default = "HEAD", placeholder = "HEAD / commit hash" },
+]
+
+options = [
+  { id = "message", label = "直接传入标签说明 -m", default_enabled = false },
+  { id = "sign", label = "使用 GPG 签名 -s", default_enabled = false },
+  { id = "commit", label = "指定目标提交", default_enabled = false },
+]
+
+[commands.git_tag_push]
+category = "git"
+title = "Git 推送标签"
+description = "将指定标签推送到远程仓库"
+danger = false
+template = '''
+git push <<"{{remote}}">> <<"{{tag}}">>
+'''
+
+params = [
+  { name = "remote", label = "远程名", default = "origin", placeholder = "origin" },
+  { name = "tag", label = "标签名", placeholder = "v0.1.0" },
+]
+
+[commands.git_tag_delete_remote]
+category = "git"
+title = "Git 删除远端标签"
+description = "删除远程仓库中的指定标签"
+danger = true
+template = '''
+git push <<"{{remote}}">> :refs/tags/<<"{{tag}}">>
+'''
+
+params = [
+  { name = "remote", label = "远程名", default = "origin", placeholder = "origin" },
+  { name = "tag", label = "标签名", placeholder = "v0.1.0" },
+]

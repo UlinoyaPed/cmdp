@@ -17,8 +17,8 @@
 - `src/preview.rs`: 预览文本、缺失参数提示、危险提示
 - `src/output.rs`: 使用继承的 `stdin`、`stdout`、`stderr` 启动 shell 子进程执行最终命令
 - `src/error.rs`: 配置、模板、渲染相关错误
-- `examples/commands.toml`: 示例全局配置
-- `.cmdp.toml`: 示例本地项目配置
+- `examples/*.toml`: 按主题拆分的示例全局配置
+- `.cmdp.toml`: 当前项目的本地开发配置
 
 ## 运行
 
@@ -59,7 +59,68 @@ cargo run
 
 启动时会先按路径顺序加载 `~/.config/cmdp/` 下所有 `.toml` 文件，再从当前目录向上查找 `.cmdp.toml`，直到用户家目录或文件系统根目录。本地配置可以追加分类和命令，也可以用同名命令整体覆盖全局命令。
 
-首次运行时，如果 `~/.config/cmdp` 目录不存在，程序会创建一个最小示例 `commands.toml`。如果之后删除或清空配置目录里的 TOML 文件，程序不会继续显示内置命令。
+首次运行时，如果 `~/.config/cmdp` 目录不存在，程序只会创建这个目录。全局配置始终来自该目录第一层的 `.toml` 文件，按文件名排序后逐个加载，不递归读取子目录，也不会在代码里内置或硬编码示例配置。如果目录里没有 TOML 文件，程序就不会显示全局命令。
+
+当前仓库也带了一个 `.cmdp.toml`，用于覆盖或追加适合本项目的本地命令。你在仓库根目录或子目录启动 `cmdp` 时，会额外看到 `cmdp 开发` 和 `cmdp 发布` 两组命令，例如格式检查、测试、Clippy、本地发布检查、安装当前 checkout、预览 README 和复制示例配置。
+
+## 示例配置
+
+`examples/` 下的示例配置按使用场景拆分，适合按需复制到全局配置目录：
+
+- `archive.toml`: `tar`、`zip`、`unzip` 压缩解压
+- `disc.toml`: xorriso 光盘设备、ISO 制作、刻录和校验
+- `file.toml`: `less`、`wc`、`tail` 等文件查看
+- `flatpak.toml`: Flatpak 搜索、安装、卸载和权限查看
+- `git.toml`: 常用 Git 状态、diff、提交、分支、标签和推送
+- `package.dnf.toml`: Fedora/DNF 软件包管理
+- `rust.toml`: Cargo run/build/test/fmt/clippy/install
+- `search.toml`: `find` 和 `grep` 搜索
+- `size.toml`: `du`、`ls`、大文件查找
+- `systemd.toml`: systemctl 和 journalctl
+
+安装全部示例：
+
+```sh
+mkdir -p ~/.config/cmdp
+cp examples/*.toml ~/.config/cmdp/
+```
+
+只安装部分示例：
+
+```sh
+mkdir -p ~/.config/cmdp
+cp examples/git.toml examples/rust.toml ~/.config/cmdp/
+```
+
+本地项目配置写在项目根目录的 `.cmdp.toml`。它适合放项目专属命令，例如这个仓库的本地配置：
+
+```toml
+version = 1
+
+[categories.project]
+alias = "cmdp 开发"
+
+[commands.cmdp_test]
+category = "project"
+title = "运行测试"
+description = "运行全部测试，或按名称过滤单个测试"
+danger = false
+template = '''
+cargo test [[locked:--locked]] [[test_name:{{test_name}}]] [[nocapture:-- --nocapture]]
+'''
+
+params = [
+  { name = "test_name", label = "测试过滤", placeholder = "config / renderer" },
+]
+
+options = [
+  { id = "locked", label = "使用 Cargo.lock", default_enabled = false },
+  { id = "test_name", label = "只跑匹配测试", default_enabled = false },
+  { id = "nocapture", label = "显示测试输出", default_enabled = false },
+]
+```
+
+全局和本地配置合并后，如果命令 ID 相同，后加载的本地命令会整体覆盖全局命令。这个规则可以用来给某个项目定制更合适的默认参数、标题或危险标记。
 
 ## 配置文件教程
 

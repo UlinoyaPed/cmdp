@@ -1,32 +1,161 @@
 version = 1
 
 [categories.project]
-alias = "当前项目"
+alias = "cmdp 开发"
 
-[commands.run]
+[commands.cmdp_run]
 category = "project"
-title = "运行项目"
-description = "运行当前 Rust 项目"
+title = "运行 cmdp"
+description = "运行当前 checkout，可选传递程序参数"
 danger = false
 template = '''
 cargo run [[release:--release]] [[args:-- {{args}}]]
 '''
+
 params = [
   { name = "args", label = "程序参数", placeholder = "--help" },
 ]
+
 options = [
   { id = "release", label = "Release 模式", default_enabled = false },
   { id = "args", label = "传递程序参数", default_enabled = false },
 ]
 
-[commands.check_all]
+[commands.cmdp_fmt_check]
 category = "project"
-title = "格式化并检查"
-description = "执行 cargo fmt 和 cargo clippy"
+title = "检查格式"
+description = "只检查 Rust 格式，不修改文件"
 danger = false
 template = '''
-cargo fmt && cargo clippy [[fix:--fix]]
+cargo fmt --all -- --check
 '''
+
+[commands.cmdp_test]
+category = "project"
+title = "运行测试"
+description = "运行全部测试，或按名称过滤单个测试"
+danger = false
+template = '''
+cargo test [[locked:--locked]] [[test_name:{{test_name}}]] [[nocapture:-- --nocapture]]
+'''
+
+params = [
+  { name = "test_name", label = "测试过滤", placeholder = "config / renderer" },
+]
+
 options = [
-  { id = "fix", label = "自动修复", default_enabled = false },
+  { id = "locked", label = "使用 Cargo.lock", default_enabled = false },
+  { id = "test_name", label = "只跑匹配测试", default_enabled = false },
+  { id = "nocapture", label = "显示测试输出", default_enabled = false },
+]
+
+[commands.cmdp_clippy]
+category = "project"
+title = "运行 Clippy"
+description = "检查二进制和测试 target，可选把 warning 视为错误"
+danger = false
+template = '''
+cargo clippy --all-targets [[locked:--locked]] [[deny:-- -D warnings]]
+'''
+
+options = [
+  { id = "locked", label = "使用 Cargo.lock", default_enabled = false },
+  { id = "deny", label = "警告视为错误", default_enabled = true },
+]
+
+[commands.cmdp_release_check]
+category = "project"
+title = "本地发布检查"
+description = "执行发布前本地验证脚本"
+danger = false
+template = '''
+scripts/check-release-local.sh
+'''
+
+[commands.cmdp_install]
+category = "project"
+title = "安装当前版本"
+description = "从当前 checkout 安装 cmdp"
+danger = false
+template = '''
+cargo install --path . [[locked:--locked]]
+'''
+
+options = [
+  { id = "locked", label = "使用 Cargo.lock", default_enabled = false },
+]
+
+[commands.cmdp_readme]
+category = "project"
+title = "预览 README"
+description = "用当前 pager 查看 README"
+danger = false
+template = '''
+${PAGER:-less} README.md
+'''
+
+[commands.cmdp_config_files]
+category = "project"
+title = "列出示例配置"
+description = "查看 examples 目录里的可安装配置模板"
+danger = false
+template = '''
+find examples -maxdepth 1 -type f -name '*.toml' | sort
+'''
+
+[commands.cmdp_copy_examples]
+category = "project"
+title = "安装示例配置"
+description = "把 examples 里的示例模板复制到全局配置目录，不覆盖已有文件"
+danger = false
+template = '''
+mkdir -p ~/.config/cmdp && cp -n examples/*.toml ~/.config/cmdp/
+'''
+
+[commands.cmdp_clean]
+category = "project"
+title = "清理构建产物"
+description = "删除 Cargo target 目录"
+danger = true
+template = '''
+cargo clean
+'''
+
+[categories.release]
+alias = "cmdp 发布"
+
+[commands.cmdp_build_release]
+category = "release"
+title = "Release 构建"
+description = "构建优化后的 cmdp 二进制"
+danger = false
+template = '''
+cargo build --release [[locked:--locked]]
+'''
+
+options = [
+  { id = "locked", label = "使用 Cargo.lock", default_enabled = false },
+]
+
+[commands.cmdp_version]
+category = "release"
+title = "查看版本"
+description = "查看 Cargo.toml 中的 package version"
+danger = false
+template = '''
+cargo pkgid | sed 's/.*@//'
+'''
+
+[commands.cmdp_tag]
+category = "release"
+title = "创建发布标签"
+description = "按版本号创建 annotated tag"
+danger = false
+template = '''
+git tag -a <<"{{tag}}">> -m <<"{{message}}">>
+'''
+
+params = [
+  { name = "tag", label = "标签", placeholder = "v0.2.0" },
+  { name = "message", label = "标签说明", placeholder = "release v0.2.0" },
 ]

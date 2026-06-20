@@ -1,0 +1,70 @@
+[categories.archive]
+alias = "压缩解压"
+
+[commands.tar_gz_create]
+category = "archive"
+title = "压缩为 tar.gz"
+description = "使用 tar 创建 tar.gz 压缩包"
+danger = false
+template = '''
+tar -czvf <<"{{output}}">> <<"{{path}}">>
+'''
+
+params = [
+  { name = "output", label = "输出文件", placeholder = "archive.tar.gz" },
+  { name = "path", label = "要压缩的文件或目录", default = ".", placeholder = "." },
+]
+
+[commands.tar_extract]
+category = "archive"
+title = "解压 tar 包"
+description = "解压 tar、tar.gz、tar.bz2、tar.xz 等归档文件"
+danger = false
+template = '''
+tar -xvf <<"{{archive}}">> [[directory:-C "{{directory}}"]]
+'''
+
+params = [
+  { name = "archive", label = "压缩包路径", placeholder = "archive.tar.gz" },
+  { name = "directory", label = "解压到目录", placeholder = "./output" },
+]
+
+options = [
+  { id = "directory", label = "指定解压目录", default_enabled = false },
+]
+
+[commands.zip_create]
+category = "archive"
+title = "压缩为 zip"
+description = "使用 zip 创建 zip 压缩包"
+danger = false
+template = '''
+zip [[recursive:-r]] <<"{{output}}">> <<"{{path}}">>
+'''
+
+params = [
+  { name = "output", label = "输出文件", placeholder = "archive.zip" },
+  { name = "path", label = "要压缩的文件或目录", default = ".", placeholder = "." },
+]
+
+options = [
+  { id = "recursive", label = "递归目录 -r", default_enabled = true },
+]
+
+[commands.unzip_file]
+category = "archive"
+title = "解压 zip"
+description = "使用 unzip 解压 zip 文件"
+danger = false
+template = '''
+unzip <<"{{archive}}">> [[directory:-d "{{directory}}"]]
+'''
+
+params = [
+  { name = "archive", label = "zip 文件", placeholder = "archive.zip" },
+  { name = "directory", label = "解压到目录", placeholder = "./output" },
+]
+
+options = [
+  { id = "directory", label = "指定解压目录", default_enabled = false },
+]

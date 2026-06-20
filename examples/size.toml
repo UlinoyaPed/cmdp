@@ -1,0 +1,54 @@
+[categories.size]
+alias = "大小统计"
+
+[commands.dir_size]
+category = "size"
+title = "查看目录大小"
+description = "使用 du 查看目录大小"
+danger = false
+template = '''
+du [[human:-h]] [[summary:-s]] [[depth:--max-depth={{depth}}]] <<"{{path}}">>
+'''
+
+params = [
+  { name = "path", label = "目录路径", default = ".", placeholder = "." },
+  { name = "depth", label = "目录深度", default = "1", placeholder = "1" },
+]
+
+options = [
+  { id = "human", label = "易读单位 -h", default_enabled = true },
+  { id = "summary", label = "只看总大小 -s", default_enabled = false },
+  { id = "depth", label = "限制深度", default_enabled = true },
+]
+
+[commands.file_size]
+category = "size"
+title = "查看文件大小"
+description = "使用 ls 查看文件大小和详细信息"
+danger = false
+template = '''
+ls [[human:-h]] [[long:-l]] <<"{{path}}">>
+'''
+
+params = [
+  { name = "path", label = "文件或目录", default = ".", placeholder = "." },
+]
+
+options = [
+  { id = "human", label = "易读单位 -h", default_enabled = true },
+  { id = "long", label = "详细信息 -l", default_enabled = true },
+]
+
+[commands.find_large_files]
+category = "size"
+title = "查找大文件"
+description = "查找指定目录下超过给定大小的文件，并按大小排序"
+danger = false
+template = '''
+find <<"{{path}}">> -type f -size +{{size}} -printf '%s\t%p\n' | sort -nr | numfmt --field=1 --to=iec
+'''
+
+params = [
+  { name = "path", label = "搜索路径", default = ".", placeholder = "." },
+  { name = "size", label = "大于多少", default = "100M", placeholder = "100M / 1G" },
+]

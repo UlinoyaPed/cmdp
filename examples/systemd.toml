@@ -1,0 +1,59 @@
+[categories.systemd]
+alias = "Systemd"
+
+[commands.systemctl_status]
+category = "systemd"
+title = "查看服务状态"
+description = "使用 systemctl 查看系统或用户服务状态"
+danger = false
+template = '''
+[[sudo:sudo ]]systemctl [[user:--user]] status <<"{{service}}">> --no-pager
+'''
+
+params = [
+  { name = "service", label = "服务名", placeholder = "ssh.service / hintsd.service" },
+]
+
+options = [
+  { id = "sudo", label = "使用 sudo", default_enabled = false },
+  { id = "user", label = "用户服务 --user", default_enabled = false },
+]
+
+[commands.systemctl_restart]
+category = "systemd"
+title = "重启服务"
+description = "使用 systemctl 重启系统或用户服务"
+danger = true
+template = '''
+[[sudo:sudo ]]systemctl [[user:--user]] restart <<"{{service}}">>
+'''
+
+params = [
+  { name = "service", label = "服务名", placeholder = "ssh.service / hintsd.service" },
+]
+
+options = [
+  { id = "sudo", label = "使用 sudo", default_enabled = false },
+  { id = "user", label = "用户服务 --user", default_enabled = false },
+]
+
+[commands.journalctl_logs]
+category = "systemd"
+title = "查看服务日志"
+description = "使用 journalctl 查看 systemd 服务日志"
+danger = false
+template = '''
+journalctl [[user:--user]] [[unit:-u "{{service}}"]] [[boot:-b]] [[lines:-n {{lines}}]] --no-pager
+'''
+
+params = [
+  { name = "service", label = "服务名", placeholder = "ssh.service / hintsd.service" },
+  { name = "lines", label = "显示行数", default = "100", placeholder = "100" },
+]
+
+options = [
+  { id = "user", label = "用户服务日志 --user", default_enabled = false },
+  { id = "unit", label = "指定服务 -u", default_enabled = true },
+  { id = "boot", label = "只看本次启动 -b", default_enabled = true },
+  { id = "lines", label = "限制行数", default_enabled = true },
+]

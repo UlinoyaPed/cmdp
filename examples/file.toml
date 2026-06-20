@@ -1,0 +1,53 @@
+[categories.file]
+alias = "文件查看"
+
+[commands.less_file]
+category = "file"
+title = "分页查看文件"
+description = "使用 less 分页查看文件内容"
+danger = false
+template = '''
+less <<"{{path}}">>
+'''
+
+params = [
+  { name = "path", label = "文件路径", default = ".", placeholder = "src/main.rs" },
+]
+
+[commands.count_lines]
+category = "file"
+title = "统计行数"
+description = "使用 wc 统计文件行数，也可切换统计单词数、字节数"
+danger = false
+template = '''
+wc [[lines:-l]] [[words:-w]] [[bytes:-c]] <<"{{path}}">>
+'''
+
+params = [
+  { name = "path", label = "文件路径", default = ".", placeholder = "src/main.rs" },
+]
+
+options = [
+  { id = "lines", label = "统计行数 -l", default_enabled = true },
+  { id = "words", label = "统计单词数 -w", default_enabled = false },
+  { id = "bytes", label = "统计字节数 -c", default_enabled = false },
+]
+
+[commands.tail_log]
+category = "file"
+title = "实时查看日志"
+description = "使用 tail 实时查看日志文件"
+danger = false
+template = '''
+tail [[lines:-n {{lines}}]] [[follow:-f]] <<"{{file}}">>
+'''
+
+params = [
+  { name = "file", label = "日志文件", placeholder = "/var/log/example.log" },
+  { name = "lines", label = "显示行数", default = "100", placeholder = "100" },
+]
+
+options = [
+  { id = "lines", label = "指定显示行数", default_enabled = true },
+  { id = "follow", label = "实时跟随 -f", default_enabled = true },
+]

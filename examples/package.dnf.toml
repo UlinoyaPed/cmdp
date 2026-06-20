@@ -1,0 +1,50 @@
+[categories.package]
+alias = "软件包管理"
+
+[commands.dnf_update]
+category = "package"
+title = "DNF 更新系统"
+description = "Fedora 使用 dnf 更新系统软件包"
+danger = false
+template = '''
+sudo dnf update
+'''
+
+[commands.dnf_install]
+category = "package"
+title = "DNF 安装软件"
+description = "Fedora 使用 dnf 安装软件包"
+danger = false
+template = '''
+sudo dnf install <<"{{package}}">>
+'''
+
+params = [
+  { name = "package", label = "软件包名", placeholder = "git" },
+]
+
+[commands.dnf_remove]
+category = "package"
+title = "DNF 卸载软件"
+description = "Fedora 使用 dnf 卸载软件包"
+danger = true
+template = '''
+sudo dnf remove <<"{{package}}">>
+'''
+
+params = [
+  { name = "package", label = "软件包名", placeholder = "package-name" },
+]
+
+[commands.dnf_search]
+category = "package"
+title = "DNF 搜索软件"
+description = "Fedora 使用 dnf 搜索软件包"
+danger = false
+template = '''
+dnf search <<"{{keyword}}">>
+'''
+
+params = [
+  { name = "keyword", label = "关键词", placeholder = "telegram" },
+]

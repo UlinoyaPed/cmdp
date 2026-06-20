@@ -1,0 +1,73 @@
+[categories.flatpak]
+alias = "Flatpak"
+
+[commands.flatpak_update]
+category = "flatpak"
+title = "Flatpak 更新"
+description = "更新所有 Flatpak 应用"
+danger = false
+template = '''
+flatpak update
+'''
+
+[commands.flatpak_search]
+category = "flatpak"
+title = "Flatpak 搜索"
+description = "搜索 Flatpak 应用"
+danger = false
+template = '''
+flatpak search <<"{{keyword}}">>
+'''
+
+params = [
+  { name = "keyword", label = "关键词", placeholder = "telegram" },
+]
+
+[commands.flatpak_install]
+category = "flatpak"
+title = "Flatpak 安装"
+description = "安装 Flatpak 应用"
+danger = false
+template = '''
+flatpak install [[user:--user]] [[remote:{{remote}}]] <<"{{app_id}}">>
+'''
+
+params = [
+  { name = "remote", label = "远程仓库", default = "flathub", placeholder = "flathub" },
+  { name = "app_id", label = "应用 ID", placeholder = "org.telegram.desktop" },
+]
+
+options = [
+  { id = "user", label = "安装到用户目录 --user", default_enabled = true },
+  { id = "remote", label = "指定远程仓库", default_enabled = true },
+]
+
+[commands.flatpak_uninstall]
+category = "flatpak"
+title = "Flatpak 卸载"
+description = "卸载 Flatpak 应用"
+danger = true
+template = '''
+flatpak uninstall [[user:--user]] <<"{{app_id}}">>
+'''
+
+params = [
+  { name = "app_id", label = "应用 ID", placeholder = "org.telegram.desktop" },
+]
+
+options = [
+  { id = "user", label = "卸载用户应用 --user", default_enabled = true },
+]
+
+[commands.flatpak_permissions]
+category = "flatpak"
+title = "Flatpak 查看权限"
+description = "查看 Flatpak 应用权限"
+danger = false
+template = '''
+flatpak info --show-permissions <<"{{app_id}}">>
+'''
+
+params = [
+  { name = "app_id", label = "应用 ID", placeholder = "org.telegram.desktop" },
+]

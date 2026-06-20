@@ -16,8 +16,6 @@ pub fn ensure_example_global() -> Result<()> {
     let dir = global_dir()?;
     if !dir.exists() {
         fs::create_dir_all(&dir)?;
-        let sample = include_str!("../examples/commands.toml");
-        fs::write(dir.join("commands.toml"), sample)?;
     }
     Ok(())
 }
