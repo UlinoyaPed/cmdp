@@ -193,6 +193,14 @@ docs: 更新贡献指南
 
 每个提交只包含一个清晰的行为变更；涉及界面、配置或快捷键变化时，请在提交说明或 PR 描述里写明验证命令。
 
+## 发布
+
+推送 `v*` 标签会触发 release workflow。发布前会执行格式检查、Clippy 和测试，然后为以下 Linux 目标编译并上传压缩包：
+
+- `x86_64-unknown-linux-gnu`
+- `aarch64-unknown-linux-gnu`
+- `armv7-unknown-linux-gnueabihf`
+
 ## 执行示例
 
 确认命令后，TUI 会退出，然后在原终端先打印最终命令，再执行它。例如预览区生成：
