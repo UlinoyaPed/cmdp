@@ -227,7 +227,7 @@ fn draw_commands(f: &mut Frame, app: &App, area: Rect) {
 fn command_item(app: &App, id: &str, command: &crate::template::Command) -> ListItem<'static> {
     let mut spans = vec![
         Span::styled(
-            format!("[{}] ", command.source.label()),
+            format!("[{}] ", source_short_label(command.source)),
             source_style(command.source),
         ),
         Span::styled(
@@ -316,7 +316,7 @@ fn param_item(
 ) -> ListItem<'static> {
     let editing = app.editing && selected;
     let raw_value = if editing {
-        format!("{}▌", app.edit_buffer)
+        edit_display(&app.edit_buffer, app.edit_cursor)
     } else if secret && !value.is_empty() {
         "******".to_string()
     } else {
@@ -395,11 +395,33 @@ fn option_item(selected: bool, label: String, enabled: bool) -> ListItem<'static
     ]))
 }
 
+fn source_short_label(source: Source) -> &'static str {
+    match source {
+        Source::Global => "g",
+        Source::Local => "l",
+    }
+}
+
 fn source_style(source: Source) -> Style {
     match source {
         Source::Global => Style::default().fg(Color::LightBlue),
         Source::Local => Style::default().fg(Color::LightGreen),
     }
+}
+
+fn edit_display(value: &str, cursor: usize) -> String {
+    let cursor = cursor.min(value.chars().count());
+    let mut display = String::new();
+    for (idx, ch) in value.chars().enumerate() {
+        if idx == cursor {
+            display.push('▌');
+        }
+        display.push(ch);
+    }
+    if cursor == value.chars().count() {
+        display.push('▌');
+    }
+    display
 }
 
 fn source_summary(sources: &[String]) -> &'static str {
@@ -432,5 +454,23 @@ fn execute_button_area(header: Rect) -> Rect {
         y: header.y.saturating_add(1),
         width,
         height: 1,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{edit_display, source_short_label};
+    use crate::template::Source;
+
+    #[test]
+    fn source_labels_are_compact() {
+        assert_eq!(source_short_label(Source::Global), "g");
+        assert_eq!(source_short_label(Source::Local), "l");
+    }
+
+    #[test]
+    fn edit_display_places_cursor_by_character_index() {
+        assert_eq!(edit_display("a中c", 2), "a中▌c");
+        assert_eq!(edit_display("a中c", 10), "a中c▌");
     }
 }

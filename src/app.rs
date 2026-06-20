@@ -42,6 +42,7 @@ pub struct App {
     pub search_editing: bool,
     pub search_query: String,
     pub edit_buffer: String,
+    pub edit_cursor: usize,
     pub values: HashMap<String, String>,
     pub enabled: HashSet<String>,
     pub should_quit: bool,
@@ -62,6 +63,7 @@ impl App {
             search_editing: false,
             search_query: String::new(),
             edit_buffer: String::new(),
+            edit_cursor: 0,
             values: HashMap::new(),
             enabled: HashSet::new(),
             should_quit: false,
@@ -80,6 +82,7 @@ impl App {
                 self.category_idx = 0;
                 self.command_idx = 0;
                 self.editing = false;
+                self.edit_cursor = 0;
                 self.search_editing = false;
                 self.search_query.clear();
                 self.reset_form();
@@ -291,6 +294,7 @@ impl App {
                 Some(FormItem::Param { name, choices, .. }) if choices.is_empty() => {
                     self.editing = true;
                     self.edit_buffer = self.values.get(&name).cloned().unwrap_or_default();
+                    self.edit_cursor = self.edit_buffer.chars().count();
                 }
                 Some(FormItem::Param { name, choices, .. }) => {
                     cycle_choice(&mut self.values, &name, &choices);
@@ -326,8 +330,60 @@ impl App {
             self.values.insert(name, self.edit_buffer.clone());
         }
         self.editing = false;
+        self.edit_cursor = 0;
         self.error = None;
         self.danger_confirmation = None;
+    }
+
+    pub fn cancel_edit(&mut self) {
+        self.editing = false;
+        self.edit_cursor = 0;
+    }
+
+    pub fn insert_edit_char(&mut self, c: char) {
+        self.clamp_edit_cursor();
+        let idx = byte_index(&self.edit_buffer, self.edit_cursor);
+        self.edit_buffer.insert(idx, c);
+        self.edit_cursor += 1;
+    }
+
+    pub fn backspace_edit_char(&mut self) {
+        self.clamp_edit_cursor();
+        if self.edit_cursor == 0 {
+            return;
+        }
+        let start = byte_index(&self.edit_buffer, self.edit_cursor - 1);
+        let end = byte_index(&self.edit_buffer, self.edit_cursor);
+        self.edit_buffer.replace_range(start..end, "");
+        self.edit_cursor -= 1;
+    }
+
+    pub fn delete_edit_char(&mut self) {
+        self.clamp_edit_cursor();
+        let len = self.edit_buffer.chars().count();
+        if self.edit_cursor >= len {
+            return;
+        }
+        let start = byte_index(&self.edit_buffer, self.edit_cursor);
+        let end = byte_index(&self.edit_buffer, self.edit_cursor + 1);
+        self.edit_buffer.replace_range(start..end, "");
+    }
+
+    pub fn move_edit_cursor(&mut self, right: bool) {
+        let len = self.edit_buffer.chars().count();
+        self.edit_cursor = if right {
+            (self.edit_cursor + 1).min(len)
+        } else {
+            self.edit_cursor.saturating_sub(1)
+        };
+    }
+
+    pub fn move_edit_cursor_to_start(&mut self) {
+        self.edit_cursor = 0;
+    }
+
+    pub fn move_edit_cursor_to_end(&mut self) {
+        self.edit_cursor = self.edit_buffer.chars().count();
     }
 
     pub fn render(&self, mask: bool) -> Option<renderer::Rendered> {
@@ -475,6 +531,10 @@ impl App {
             self.form_idx = len - 1;
         }
     }
+
+    fn clamp_edit_cursor(&mut self) {
+        self.edit_cursor = self.edit_cursor.min(self.edit_buffer.chars().count());
+    }
 }
 
 fn push_param_item(
@@ -537,6 +597,14 @@ fn cycle_choice(values: &mut HashMap<String, String>, name: &str, choices: &[Str
         .and_then(|v| choices.iter().position(|c| c == v))
         .unwrap_or(choices.len() - 1);
     values.insert(name.to_string(), choices[(pos + 1) % choices.len()].clone());
+}
+
+fn byte_index(value: &str, char_index: usize) -> usize {
+    value
+        .char_indices()
+        .map(|(idx, _)| idx)
+        .nth(char_index)
+        .unwrap_or(value.len())
 }
 
 #[cfg(test)]
@@ -605,6 +673,28 @@ mod tests {
 
         assert!(app.should_quit);
         assert_eq!(app.output.as_deref(), Some("rm -rf ./target"));
+    }
+
+    #[test]
+    fn parameter_editing_supports_cursor_movement_and_unicode() {
+        let mut app = App::new(test_config());
+        app.focus = Focus::Form;
+        app.form_idx = 0;
+        app.activate();
+
+        for ch in "a中c".chars() {
+            app.insert_edit_char(ch);
+        }
+        app.move_edit_cursor(false);
+        app.insert_edit_char('b');
+        assert_eq!(app.edit_buffer, "a中bc");
+
+        app.backspace_edit_char();
+        app.move_edit_cursor(false);
+        app.delete_edit_char();
+        app.commit_edit();
+
+        assert_eq!(app.values.get("path").map(String::as_str), Some("ac"));
     }
 
     fn test_config() -> Config {

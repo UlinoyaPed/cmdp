@@ -19,12 +19,15 @@ pub fn handle_key(app: &mut App, key: KeyEvent) {
 
     if app.editing {
         match key.code {
-            KeyCode::Esc => app.editing = false,
+            KeyCode::Esc => app.cancel_edit(),
             KeyCode::Enter => app.commit_edit(),
-            KeyCode::Backspace => {
-                app.edit_buffer.pop();
-            }
-            KeyCode::Char(c) => app.edit_buffer.push(c),
+            KeyCode::Backspace => app.backspace_edit_char(),
+            KeyCode::Delete => app.delete_edit_char(),
+            KeyCode::Left => app.move_edit_cursor(false),
+            KeyCode::Right => app.move_edit_cursor(true),
+            KeyCode::Home => app.move_edit_cursor_to_start(),
+            KeyCode::End => app.move_edit_cursor_to_end(),
+            KeyCode::Char(c) => app.insert_edit_char(c),
             _ => {}
         }
         return;
