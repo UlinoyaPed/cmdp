@@ -175,6 +175,24 @@ cargo test
 cargo clippy --all-targets
 ```
 
+## 提交约定
+
+提交信息使用 Conventional Commit 风格：
+
+```text
+<type>: <简短说明>
+```
+
+常用 `type` 包括 `feat`、`fix`、`docs`、`refactor`、`test`、`chore`、`ci`。例如：
+
+```text
+feat: 支持多配置文件
+fix: 修复输入光标移动
+docs: 更新贡献指南
+```
+
+每个提交只包含一个清晰的行为变更；涉及界面、配置或快捷键变化时，请在提交说明或 PR 描述里写明验证命令。
+
 ## 执行示例
 
 确认命令后，TUI 会退出，然后在原终端先打印最终命令，再执行它。例如预览区生成：
