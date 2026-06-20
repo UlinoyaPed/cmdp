@@ -235,6 +235,28 @@ rg [[ignore_case:-i]] [[line_number:-n]] [[glob:--glob "{{glob}}"]] <<{{query}}>
 
 不支持嵌套片段，例如 `[[...<<...>>...]]` 或 `<<...[[...]]...>>`。
 
+### 重定向写法
+
+Shell 重定向符 `>`, `>>`, `<`, `2>`, `2>>` 都按普通模板文本处理。推荐把重定向符写在片段外，只把文件路径作为参数：
+
+```toml
+template = '''
+sort < <<"{{input}}">> > <<"{{output}}">> [[log:2>> "{{log}}"]]
+'''
+
+params = [
+  { name = "input", label = "输入文件", placeholder = "input.txt" },
+  { name = "output", label = "输出文件", placeholder = "output.txt" },
+  { name = "log", label = "错误日志", placeholder = "cmd.log" },
+]
+
+options = [
+  { id = "log", label = "追加 stderr 到日志", default_enabled = false },
+]
+```
+
+不要把 `>>` 写进 `<<...>>` 必填片段内部；`<<...>>` 是 cmdp 的必填片段语法，内部的第一个 `>>` 会被当作片段结束符。需要追加输出时，使用 `>> <<"{{file}}">>` 或 `[[append:>> "{{file}}"]]` 这类写法。
+
 ## 验证
 
 ```sh

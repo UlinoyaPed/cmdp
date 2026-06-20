@@ -142,4 +142,25 @@ mod tests {
 
         assert_eq!(rendered.text, "echo a  b --name first  last");
     }
+
+    #[test]
+    fn preserves_shell_redirection_operators() {
+        let template =
+            parse_template(r#"sort < <<"{{input}}">> > <<"{{output}}">> [[append:2>> "{{log}}"]]"#)
+                .unwrap();
+        let values = HashMap::from([
+            ("input".to_string(), "in.txt".to_string()),
+            ("output".to_string(), "out.txt".to_string()),
+            ("log".to_string(), "cmd.log".to_string()),
+        ]);
+        let enabled = HashSet::from(["append".to_string()]);
+
+        let rendered = render(&template, &values, &enabled, &HashSet::new());
+
+        assert_eq!(
+            rendered.text,
+            r#"sort < "in.txt" > "out.txt" 2>> "cmd.log""#
+        );
+        assert!(rendered.missing.is_empty());
+    }
 }

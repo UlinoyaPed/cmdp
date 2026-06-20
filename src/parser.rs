@@ -189,4 +189,21 @@ mod tests {
         assert_eq!(usage.optional[0].id, "option_1");
         assert_eq!(usage.optional[0].params, vec!["path"]);
     }
+
+    #[test]
+    fn treats_shell_redirection_as_template_text() {
+        let parsed =
+            parse_template(r#"sort < <<"{{input}}">> > <<"{{output}}">> [[append:>> "{{log}}"]]"#)
+                .unwrap();
+        let usage = analyze_template(&parsed);
+
+        assert_eq!(usage.required_params, vec!["input", "output"]);
+        assert_eq!(
+            usage.optional,
+            vec![OptionalUsage {
+                id: "append".to_string(),
+                params: vec!["log".to_string()],
+            }]
+        );
+    }
 }
