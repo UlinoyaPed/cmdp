@@ -63,15 +63,6 @@ options = [
   { id = "deny", label = "警告视为错误", default_enabled = true },
 ]
 
-[commands.cmdp_release_check]
-category = "project"
-title = "本地发布检查"
-description = "执行发布前本地验证脚本"
-danger = false
-template = '''
-scripts/check-release-local.sh
-'''
-
 [commands.cmdp_install]
 category = "project"
 title = "安装当前版本"
@@ -123,6 +114,15 @@ cargo clean
 
 [categories.release]
 alias = "cmdp 发布"
+
+[commands.cmdp_release_check]
+category = "release"
+title = "本地发布检查"
+description = "执行发布前本地验证脚本"
+danger = false
+template = '''
+scripts/check-release-local.sh
+'''
 
 [commands.cmdp_build_release]
 category = "release"
