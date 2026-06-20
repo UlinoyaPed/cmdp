@@ -297,7 +297,7 @@ docs: 更新贡献指南
 
 ## 发布
 
-推送 `v*` 标签会触发 release workflow。发布前会执行格式检查、Clippy 和测试，然后为以下 Linux 目标编译并上传 `.tar.gz`、`.deb` 和 `.rpm` 包：
+推送 `v*` 标签会触发 release workflow。发布前会执行格式检查、Clippy 和测试，然后为以下 Linux 目标编译并上传 `.tar.gz`、`.deb` 和 `.rpm` 包，同时单独上传一份 `examples` 示例配置压缩包：
 
 - `x86_64-unknown-linux-gnu`
 - `aarch64-unknown-linux-gnu`

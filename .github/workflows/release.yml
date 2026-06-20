@@ -131,11 +131,27 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
       - name: Download release artifacts
         uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
+
+      - name: Package example configs
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          package_name="${BINARY_NAME}-${GITHUB_REF_NAME}-examples"
+          package_dir="dist/${package_name}"
+
+          mkdir -p "${package_dir}"
+          cp -R examples "${package_dir}/"
+          tar -C dist -czf "dist/${package_name}.tar.gz" "${package_name}"
+          rm -rf "${package_dir}"
 
       - name: Show artifacts
         run: ls -lah dist

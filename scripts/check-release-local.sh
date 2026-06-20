@@ -40,4 +40,11 @@ mkdir -p "$tmpdir"
 cargo deb --no-build --locked --output "$tmpdir"
 cargo generate-rpm --output "$tmpdir"
 
-find "$tmpdir" -maxdepth 1 -type f \( -name '*.deb' -o -name '*.rpm' \) -print
+example_package="cmdp-examples"
+example_package_dir="$tmpdir/$example_package"
+mkdir -p "$example_package_dir"
+cp -R examples "$example_package_dir/"
+tar -C "$tmpdir" -czf "$tmpdir/$example_package.tar.gz" "$example_package"
+rm -rf "$example_package_dir"
+
+find "$tmpdir" -maxdepth 1 -type f \( -name '*.deb' -o -name '*.rpm' -o -name '*examples*.tar.gz' \) -print
