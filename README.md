@@ -57,9 +57,14 @@ cargo run
 .cmdp.toml
 ```
 
-启动时会先按路径顺序加载 `~/.config/cmdp/` 下所有 `.toml` 文件，再从当前目录向上查找 `.cmdp.toml`，直到用户家目录或文件系统根目录。本地配置可以追加分类和命令，也可以用同名命令整体覆盖全局命令。
+启动时的加载顺序：
 
-首次运行时，如果 `~/.config/cmdp` 目录不存在，程序只会创建这个目录。全局配置始终来自该目录第一层的 `.toml` 文件，按文件名排序后逐个加载，不递归读取子目录，也不会在代码里内置或硬编码示例配置。如果目录里没有 TOML 文件，程序就不会显示全局命令。
+1. 确保 `~/.config/cmdp/` 目录存在。
+2. 读取该目录第一层所有 `.toml` 文件，按文件名排序后逐个合并。
+3. 从当前目录向上查找第一个 `.cmdp.toml`，直到用户家目录或文件系统根目录。
+4. 如果找到本地 `.cmdp.toml`，最后加载它。
+
+程序不会递归读取全局配置子目录，也不会在代码里内置或硬编码示例配置。`examples/` 只是仓库里的模板库，不会被自动加载；只有复制到 `~/.config/cmdp/` 后才会成为全局配置。如果全局目录没有 TOML 文件，并且当前路径也没有本地 `.cmdp.toml`，程序就不会显示命令。
 
 当前仓库也带了一个 `.cmdp.toml`，用于覆盖或追加适合本项目的本地命令。你在仓库根目录或子目录启动 `cmdp` 时，会额外看到 `cmdp 开发` 和 `cmdp 发布` 两组命令，例如格式检查、测试、Clippy、本地发布检查、安装当前 checkout、预览 README 和复制示例配置。
 
@@ -82,14 +87,14 @@ cargo run
 
 ```sh
 mkdir -p ~/.config/cmdp
-cp examples/*.toml ~/.config/cmdp/
+cp -n examples/*.toml ~/.config/cmdp/
 ```
 
 只安装部分示例：
 
 ```sh
 mkdir -p ~/.config/cmdp
-cp examples/git.toml examples/rust.toml ~/.config/cmdp/
+cp -n examples/git.toml examples/rust.toml ~/.config/cmdp/
 ```
 
 本地项目配置写在项目根目录的 `.cmdp.toml`。它适合放项目专属命令，例如这个仓库的本地配置：
