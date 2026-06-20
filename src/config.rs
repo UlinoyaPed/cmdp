@@ -7,24 +7,23 @@ use std::{
     path::{Path, PathBuf},
 };
 
-pub fn global_path() -> Result<PathBuf> {
+pub fn global_dir() -> Result<PathBuf> {
     let base = BaseDirs::new().context("cannot determine home directory")?;
-    Ok(base.home_dir().join(".config/cmdp/commands.toml"))
+    Ok(base.home_dir().join(".config/cmdp"))
 }
 
 pub fn ensure_example_global() -> Result<()> {
-    let path = global_path()?;
-    if !path.exists() {
-        if let Some(parent) = path.parent() {
-            if parent.exists() {
-                return Ok(());
-            }
-            fs::create_dir_all(parent)?;
-        }
+    let dir = global_dir()?;
+    if !dir.exists() {
+        fs::create_dir_all(&dir)?;
         let sample = include_str!("../examples/commands.toml");
-        fs::write(path, sample)?;
+        fs::write(dir.join("commands.toml"), sample)?;
     }
     Ok(())
+}
+
+pub fn global_paths() -> Result<Vec<PathBuf>> {
+    toml_files_in_dir(&global_dir()?)
 }
 
 pub fn find_local(start: &Path) -> Option<PathBuf> {
@@ -44,8 +43,7 @@ pub fn find_local(start: &Path) -> Option<PathBuf> {
 pub fn load() -> Result<Config> {
     ensure_example_global()?;
     let mut merged = Config::default();
-    let gp = global_path()?;
-    if gp.exists() {
+    for gp in global_paths()? {
         merge_file(&mut merged, &gp, Source::Global)?;
     }
     if let Some(lp) = find_local(&std::env::current_dir()?) {
@@ -81,6 +79,28 @@ fn merge_file(merged: &mut Config, path: &Path, source: Source) -> Result<()> {
         .sources
         .push(format!("{}:{}", source.label(), path.display()));
     Ok(())
+}
+
+fn toml_files_in_dir(dir: &Path) -> Result<Vec<PathBuf>> {
+    if !dir.exists() {
+        return Ok(Vec::new());
+    }
+
+    let mut paths = Vec::new();
+    for entry in
+        fs::read_dir(dir).with_context(|| format!("read config directory {}", dir.display()))?
+    {
+        let path = entry?.path();
+        let is_toml = path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("toml"));
+        if path.is_file() && is_toml {
+            paths.push(path);
+        }
+    }
+    paths.sort();
+    Ok(paths)
 }
 
 fn validate(cfg: &Config) -> Result<()> {
@@ -141,5 +161,35 @@ fn validate_id(kind: &str, id: &str) -> Result<()> {
         Ok(())
     } else {
         Err(CmdpError::Config(format!("invalid {kind} id '{id}'")).into())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::toml_files_in_dir;
+    use std::{
+        fs,
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    #[test]
+    fn toml_files_in_dir_filters_and_sorts_toml_files() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir =
+            std::env::temp_dir().join(format!("cmdp-config-test-{}-{nonce}", std::process::id()));
+        fs::create_dir_all(dir.join("nested")).unwrap();
+        fs::write(dir.join("b.toml"), "").unwrap();
+        fs::write(dir.join("a.toml"), "").unwrap();
+        fs::write(dir.join("README.md"), "").unwrap();
+        fs::write(dir.join("nested").join("c.toml"), "").unwrap();
+
+        let paths = toml_files_in_dir(&dir).unwrap();
+
+        assert_eq!(paths, vec![dir.join("a.toml"), dir.join("b.toml")]);
+
+        fs::remove_dir_all(dir).unwrap();
     }
 }
