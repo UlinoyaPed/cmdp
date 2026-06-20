@@ -508,6 +508,10 @@ impl App {
     }
 
     fn matches_search(&self, id: &str, cmd: &Command, query: &str) -> bool {
+        if command_id_matches_query(id, query) {
+            return true;
+        }
+
         let category_alias = self
             .config
             .categories
@@ -611,6 +615,38 @@ fn byte_index(value: &str, char_index: usize) -> usize {
         .unwrap_or(value.len())
 }
 
+fn command_id_matches_query(id: &str, query: &str) -> bool {
+    let id = normalize_command_id_fuzzy_text(id);
+    let query = normalize_command_id_fuzzy_text(query);
+    !query.is_empty() && fuzzy_matches(&id, &query)
+}
+
+fn normalize_command_id_fuzzy_text(value: &str) -> String {
+    value
+        .to_lowercase()
+        .chars()
+        .filter(|ch| ch.is_alphanumeric())
+        .collect()
+}
+
+fn fuzzy_matches(haystack: &str, needle: &str) -> bool {
+    let mut needle = needle.chars();
+    let Some(mut expected) = needle.next() else {
+        return false;
+    };
+
+    for ch in haystack.chars() {
+        if ch == expected {
+            let Some(next) = needle.next() else {
+                return true;
+            };
+            expected = next;
+        }
+    }
+
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -632,6 +668,40 @@ mod tests {
             .collect();
         assert_eq!(command_ids, vec!["cargo_check"]);
         assert_eq!(app.current_category_id().map(String::as_str), Some("dev"));
+    }
+
+    #[test]
+    fn search_command_id_supports_fuzzy_matching_with_spaces() {
+        let mut app = App::new(test_config());
+
+        app.begin_search();
+        for ch in "cargo check".chars() {
+            app.push_search_char(ch);
+        }
+
+        let command_ids: Vec<_> = app
+            .visible_commands()
+            .into_iter()
+            .map(|(id, _)| id.as_str())
+            .collect();
+        assert_eq!(command_ids, vec!["cargo_check"]);
+    }
+
+    #[test]
+    fn search_command_id_supports_fuzzy_matching() {
+        let mut app = App::new(test_config());
+
+        app.begin_search();
+        for ch in "cgchk".chars() {
+            app.push_search_char(ch);
+        }
+
+        let command_ids: Vec<_> = app
+            .visible_commands()
+            .into_iter()
+            .map(|(id, _)| id.as_str())
+            .collect();
+        assert_eq!(command_ids, vec!["cargo_check"]);
     }
 
     #[test]
