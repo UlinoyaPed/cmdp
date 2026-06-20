@@ -1,7 +1,9 @@
 [package]
 name = "cmdp"
-version = "0.2.3"
+version = "0.2.4"
 edition = "2024"
+description = "A terminal UI for selecting and executing command templates."
+license = "GPL-3.0-only"
 
 [[bin]]
 name = "cmdp"
@@ -17,3 +19,25 @@ regex = "1.10"
 serde = { version = "1.0", features = ["derive"] }
 thiserror = "2.0"
 toml = { version = "1.0", features = ["preserve_order"] }
+
+[package.metadata.deb]
+maintainer = "UlinoyaPed <ulinoyaped@gmail.com>"
+copyright = "2026, UlinoyaPed"
+license-file = ["LICENSE", "0"]
+depends = []
+section = "utils"
+priority = "optional"
+assets = [
+  ["target/release/cmdp", "usr/bin/", "755"],
+  ["README.md", "usr/share/doc/cmdp/README.md", "644"],
+  ["LICENSE", "usr/share/doc/cmdp/LICENSE", "644"],
+]
+
+[package.metadata.generate-rpm]
+auto-req = "disabled"
+require-sh = false
+assets = [
+  { source = "target/release/cmdp", dest = "/usr/bin/cmdp", mode = "0755" },
+  { source = "README.md", dest = "/usr/share/doc/cmdp/README.md", mode = "0644", doc = true },
+  { source = "LICENSE", dest = "/usr/share/doc/cmdp/LICENSE", mode = "0644", doc = true },
+]

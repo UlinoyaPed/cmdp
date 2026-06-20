@@ -175,6 +175,12 @@ cargo test
 cargo clippy --all-targets
 ```
 
+发布前可运行本地 release 检查。该脚本会检查 GitHub Actions YAML 语法，执行格式、Clippy、测试和本机 release build，并用本机架构生成 `.deb` / `.rpm` 包：
+
+```sh
+scripts/check-release-local.sh
+```
+
 ## 提交约定
 
 提交信息使用 Conventional Commit 风格：
@@ -195,7 +201,7 @@ docs: 更新贡献指南
 
 ## 发布
 
-推送 `v*` 标签会触发 release workflow。发布前会执行格式检查、Clippy 和测试，然后为以下 Linux 目标编译并上传压缩包：
+推送 `v*` 标签会触发 release workflow。发布前会执行格式检查、Clippy 和测试，然后为以下 Linux 目标编译并上传 `.tar.gz`、`.deb` 和 `.rpm` 包：
 
 - `x86_64-unknown-linux-gnu`
 - `aarch64-unknown-linux-gnu`

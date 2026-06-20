@@ -51,18 +51,21 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
+            rpm_arch: x86_64
             archive: tar.gz
             apt_packages: ""
             linker_env: ""
             linker: ""
           - os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
+            rpm_arch: aarch64
             archive: tar.gz
             apt_packages: gcc-aarch64-linux-gnu
             linker_env: CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER
             linker: aarch64-linux-gnu-gcc
           - os: ubuntu-latest
             target: armv7-unknown-linux-gnueabihf
+            rpm_arch: armv7hl
             archive: tar.gz
             apt_packages: gcc-arm-linux-gnueabihf
             linker_env: CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER
@@ -84,6 +87,11 @@ jobs:
           rustup default stable
           rustup target add "${{ matrix.target }}"
 
+      - name: Install packaging tools
+        run: |
+          cargo install cargo-deb --locked
+          cargo install cargo-generate-rpm --locked
+
       - name: Configure cross linker
         if: matrix.linker != ''
         run: echo "${{ matrix.linker_env }}=${{ matrix.linker }}" >> "$GITHUB_ENV"
@@ -91,7 +99,7 @@ jobs:
       - name: Build release binary
         run: cargo build --release --locked --target "${{ matrix.target }}"
 
-      - name: Package binary
+      - name: Package release artifacts
         shell: bash
         run: |
           set -euo pipefail
@@ -104,12 +112,17 @@ jobs:
           cp "${binary_path}" "${package_dir}/"
           cp README.md "${package_dir}/"
           tar -C dist -czf "dist/${package_name}.tar.gz" "${package_name}"
+          cargo deb --no-build --locked --target "${{ matrix.target }}" --output dist
+          cargo generate-rpm --target "${{ matrix.target }}" --arch "${{ matrix.rpm_arch }}" --output dist
 
       - name: Upload packaged binary
         uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.target }}
-          path: dist/*.tar.gz
+          path: |
+            dist/*.tar.gz
+            dist/*.deb
+            dist/*.rpm
           if-no-files-found: error
 
   publish:

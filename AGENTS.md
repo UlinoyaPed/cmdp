@@ -20,6 +20,8 @@ embedded in the relevant source modules under `#[cfg(test)]`.
 - `cargo fmt --check`: verify Rust formatting.
 - `cargo clippy --all-targets`: run lint checks for the binary and tests.
 - `cargo install --path .`: install the current checkout as `cmdp`.
+- `scripts/check-release-local.sh`: validate workflows, checks, release build,
+  and local `.deb` / `.rpm` packaging before tagging.
 
 ## Coding Style & Naming Conventions
 
