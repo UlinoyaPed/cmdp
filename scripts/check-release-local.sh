@@ -27,6 +27,7 @@ for path in (Path(".github/workflows/ci.yml"), Path(".github/workflows/release.y
     print(f"validated YAML: {path}")
 PY
 
+cargo generate-lockfile
 cargo fmt --all -- --check
 cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked
