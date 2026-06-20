@@ -1,10 +1,14 @@
 # cmdp
 
+<p align="center"> <a href="https://github.com/UlinoyaPed/cmdp/actions/workflows/ci.yml"><img src="https://github.com/UlinoyaPed/cmdp/actions/workflows/ci.yml/badge.svg?branch=master" alt="CI"></a> <a href="https://github.com/UlinoyaPed/cmdp/actions/workflows/release.yml"><img src="https://github.com/UlinoyaPed/cmdp/actions/workflows/release.yml/badge.svg" alt="Release"></a> <a href="https://github.com/UlinoyaPed/cmdp/releases"><img src="https://img.shields.io/github/v/release/UlinoyaPed/cmdp?sort=semver&display_name=tag&label=release&color=blue" alt="GitHub Release"></a> <a href="https://totapo.eu.org/"><img src="https://img.shields.io/badge/Blog-totapo.eu.org-blue?logo=rss" alt="Blog"></a> <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/Rust-brown?logo=rust" alt="Rust"></a> <a href="https://github.com/UlinoyaPed/cmdp/blob/master/LICENSE"><img src="https://img.shields.io/github/license/UlinoyaPed/cmdp" alt="License"></a> </p>
+
 `cmdp` 是一个基于 ratatui 的命令模板选择 TUI。它从配置文件读取命令模板、选择分类和命令、填写参数、开关可选片段、实时预览最终命令。确认后，程序会先退出 TUI、恢复终端状态，然后在原终端中执行最终生成的命令。
 
 执行命令前会完整关闭 raw mode、退出 alternate screen，并恢复光标显示，因此命令输出会直接显示在原终端里。
 
 ![用户界面](https://totapo.eu.org/images/e6b3357a-b79b-47cd-b31f-107ba9df51f3.png)
+
+`cmdp` 意为 `Command Palette`
 
 ## 项目结构
 
