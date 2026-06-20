@@ -4,6 +4,8 @@
 
 执行命令前会完整关闭 raw mode、退出 alternate screen，并恢复光标显示，因此命令输出会直接显示在原终端里。
 
+![用户界面](https://totapo.eu.org/images/e6b3357a-b79b-47cd-b31f-107ba9df51f3.png)
+
 ## 项目结构
 
 - `src/main.rs`: 程序入口、终端初始化、事件循环、恢复终端后触发命令执行
