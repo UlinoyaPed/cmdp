@@ -22,6 +22,7 @@
 - `src/renderer.rs`: 根据参数和可选项渲染最终命令
 - `src/preview.rs`: 预览文本、缺失参数提示、危险提示
 - `src/output.rs`: 使用继承的 `stdin`、`stdout`、`stderr` 启动 shell 子进程执行最终命令
+- `src/state.rs`: 读取和写入上次选择、输入记录等本地状态
 - `src/error.rs`: 配置、模板、渲染相关错误
 - `examples/*.toml`: 按主题拆分的示例全局配置
 - `.cmdp.toml`: 当前项目的本地开发配置
@@ -39,7 +40,8 @@ cargo run
 - `↑` / `↓` 或 `j` / `k`: 移动当前列表或表单选择
 - 鼠标左键: 点击分类、命令或表单项；点击表单参数会进入编辑，点击选项会切换；点击标题栏右侧的 `执行` 按钮会确认执行
 - 鼠标滚轮: 在分类、命令或表单区域内滚动选择
-- `F1` / `?`: 打开或关闭快捷键提示窗口
+- `F1`: 在任意状态打开或关闭快捷键提示窗口
+- `?`: 在普通模式打开或关闭快捷键提示窗口
 - `/`: 快速搜索命令，搜索会跨分类匹配命令 ID、标题、描述、分类和来源
 - `Esc`: 退出搜索输入；搜索已退出时清空搜索
 - `Enter`: 进入参数编辑，或确认当前表单项
@@ -84,7 +86,7 @@ remember_last_input = true
 input_record_limit = 20
 ```
 
-这个文件只放程序设置，不参与命令配置合并；`settings.toml` 也会从全局命令配置列表里排除。开启后，`cmdp` 会把最近选择的分类、命令和输入快照写入 `${XDG_STATE_HOME:-~/.local/state}/cmdp/state.toml`，下次启动或 `Ctrl+r` 重新加载后恢复。
+这个文件只放程序设置，不参与命令配置合并；`settings.toml` 也会从全局命令配置列表里排除。开启后，`cmdp` 会把最近选择的分类、命令和输入快照写入 `${XDG_STATE_HOME:-~/.local/state}/cmdp/state.toml`，下次启动或 `Ctrl+r` 重新加载后恢复。在 Unix 系统上，状态文件会以仅当前用户可读写的权限写入。
 
 `remember_last_selection` 控制是否恢复上次选中的分类和命令；`remember_last_input` 控制是否按命令 ID 恢复上次输入的普通参数值和可选片段状态；`input_record_limit` 控制最多保留多少条命令输入记录，默认是 `20`。`secret = true` 的参数不会写入状态文件。把对应开关改为 `false` 或删除设置文件即可关闭。
 

@@ -347,6 +347,7 @@ impl App {
         match self.form_items().get(self.form_idx).cloned() {
             Some(FormItem::Option { id, .. }) if self.focus == Focus::Form => {
                 self.toggle_option(&id);
+                self.persist_current_input();
             }
             Some(FormItem::Param { name, choices, .. })
                 if self.focus == Focus::Form && !choices.is_empty() =>

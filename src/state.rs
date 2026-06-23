@@ -2,7 +2,8 @@ use crate::template::AppState;
 use anyhow::{Context, Result};
 use directories::BaseDirs;
 use std::{
-    fs, io,
+    fs,
+    io::{self, Write},
     path::{Path, PathBuf},
 };
 
@@ -39,7 +40,25 @@ fn write_to_path(path: &Path, state: &AppState) -> Result<()> {
         fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
     }
     let text = toml::to_string(state).context("serialize app state")?;
-    fs::write(path, text).with_context(|| format!("write {}", path.display()))
+    write_private(path, text.as_bytes()).with_context(|| format!("write {}", path.display()))
+}
+
+#[cfg(unix)]
+fn write_private(path: &Path, contents: &[u8]) -> io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let mut file = fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(path)?;
+    file.set_permissions(fs::Permissions::from_mode(0o600))?;
+    file.write_all(contents)
+}
+
+#[cfg(not(unix))]
+fn write_private(path: &Path, contents: &[u8]) -> io::Result<()> {
+    fs::write(path, contents)
 }
 
 #[cfg(test)]
@@ -72,6 +91,21 @@ mod tests {
         write_to_path(&path, &state).unwrap();
 
         assert_eq!(read_from_path(&path).unwrap(), Some(state));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn app_state_file_is_private_on_unix() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = temp_state_dir();
+        let path = dir.join("state.toml");
+
+        write_to_path(&path, &AppState::default()).unwrap();
+
+        let mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
         fs::remove_dir_all(dir).unwrap();
     }
 
