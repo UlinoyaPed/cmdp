@@ -6,10 +6,24 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent,
 use ratatui::prelude::Rect;
 
 pub fn handle_key(app: &mut App, key: KeyEvent) {
+    if app.show_help {
+        match key.code {
+            KeyCode::Esc | KeyCode::F(1) | KeyCode::Char('?') => app.close_help(),
+            _ => {}
+        }
+        return;
+    }
+
+    if key.code == KeyCode::F(1) {
+        app.toggle_help();
+        return;
+    }
+
     if app.search_editing {
         match (key.code, key.modifiers) {
             (KeyCode::Esc, _) | (KeyCode::Enter, _) => app.finish_search(),
             (KeyCode::Backspace, _) => app.pop_search_char(),
+            (KeyCode::Char('d'), KeyModifiers::CONTROL) => app.reset_current_form_to_defaults(),
             (KeyCode::Char('u'), KeyModifiers::CONTROL) => app.clear_search(),
             (KeyCode::Char(c), _) => app.push_search_char(c),
             _ => {}
@@ -18,6 +32,10 @@ pub fn handle_key(app: &mut App, key: KeyEvent) {
     }
 
     if app.editing {
+        if key.code == KeyCode::Char('d') && key.modifiers == KeyModifiers::CONTROL {
+            app.reset_current_form_to_defaults();
+            return;
+        }
         match key.code {
             KeyCode::Esc => app.cancel_edit(),
             KeyCode::Enter => app.commit_edit(),
@@ -35,6 +53,7 @@ pub fn handle_key(app: &mut App, key: KeyEvent) {
     match (key.code, key.modifiers) {
         (KeyCode::Char('q'), _) => app.should_quit = true,
         (KeyCode::Esc, _) if app.search_active() => app.clear_search(),
+        (KeyCode::Char('?'), _) => app.toggle_help(),
         (KeyCode::Char('/'), _) => app.begin_search(),
         (KeyCode::Tab, _) => app.next_focus(false),
         (KeyCode::BackTab, _) => app.next_focus(true),
@@ -44,6 +63,7 @@ pub fn handle_key(app: &mut App, key: KeyEvent) {
         (KeyCode::Down, _) | (KeyCode::Char('j'), _) => app.move_sel(true),
         (KeyCode::Enter, _) => app.activate(),
         (KeyCode::Char(' '), _) => app.toggle(),
+        (KeyCode::Char('d'), KeyModifiers::CONTROL) => app.reset_current_form_to_defaults(),
         (KeyCode::Char('r'), KeyModifiers::CONTROL) => app.reload(),
         (KeyCode::Char('y'), KeyModifiers::CONTROL) => app.confirm(),
         _ => {}

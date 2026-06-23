@@ -49,6 +49,7 @@ pub struct App {
     pub output: Option<String>,
     pub error: Option<String>,
     pub danger_confirmation: Option<String>,
+    pub show_help: bool,
 }
 
 impl App {
@@ -70,6 +71,7 @@ impl App {
             output: None,
             error: None,
             danger_confirmation: None,
+            show_help: false,
         };
         app.reset_form();
         app.restore_last_selection();
@@ -137,6 +139,21 @@ impl App {
     }
 
     pub fn reset_form(&mut self) {
+        self.reset_form_to_defaults();
+        self.restore_current_input();
+    }
+
+    pub fn reset_current_form_to_defaults(&mut self) {
+        self.error = None;
+        self.danger_confirmation = None;
+        self.editing = false;
+        self.edit_buffer.clear();
+        self.edit_cursor = 0;
+        self.reset_form_to_defaults();
+        self.remove_current_input_record();
+    }
+
+    fn reset_form_to_defaults(&mut self) {
         self.values.clear();
         self.enabled.clear();
         self.form_idx = 0;
@@ -153,7 +170,6 @@ impl App {
                 }
             }
         }
-        self.restore_current_input();
     }
 
     pub fn form_items(&self) -> Vec<FormItem> {
@@ -222,6 +238,14 @@ impl App {
             (Focus::Form, true) => Focus::Commands,
         };
         self.clamp_form();
+    }
+
+    pub fn toggle_help(&mut self) {
+        self.show_help = !self.show_help;
+    }
+
+    pub fn close_help(&mut self) {
+        self.show_help = false;
     }
 
     pub fn select_category(&mut self, idx: usize) {
@@ -593,6 +617,24 @@ impl App {
         }
     }
 
+    fn remove_current_input_record(&mut self) {
+        if !self.config.settings.remember_last_input {
+            return;
+        }
+
+        let Some((command_id, _)) = self.current_command() else {
+            return;
+        };
+        let command_id = command_id.clone();
+        let mut app_state = self.load_app_state_or_default();
+        app_state
+            .input_records
+            .retain(|record| record.command_id != command_id);
+        if let Err(error) = state::save(&app_state) {
+            self.error = Some(format!("清除上次输入失败：{error}"));
+        }
+    }
+
     fn load_app_state_or_default(&mut self) -> AppState {
         match state::load() {
             Ok(Some(state)) => state,
@@ -933,6 +975,7 @@ mod tests {
         let mut app = App::new(test_config());
         app.focus = Focus::Form;
         app.form_idx = 0;
+        app.values.insert("path".to_string(), String::new());
         app.activate();
 
         for ch in "a中c".chars() {
@@ -958,6 +1001,17 @@ mod tests {
 
         assert!(preview.contains("~/.config/cmdp/"));
         assert!(preview.contains(".cmdp.toml"));
+    }
+
+    #[test]
+    fn help_window_can_be_toggled() {
+        let mut app = App::new(test_config());
+
+        app.toggle_help();
+        assert!(app.show_help);
+
+        app.close_help();
+        assert!(!app.show_help);
     }
 
     #[test]
@@ -999,6 +1053,27 @@ mod tests {
 
         assert_eq!(app.values.get("path").map(String::as_str), Some("./src"));
         assert!(app.enabled.is_empty());
+    }
+
+    #[test]
+    fn reset_current_form_returns_to_config_defaults() {
+        let mut app = App::new(test_config());
+        app.apply_selection_state(&AppState {
+            category_id: Some("file".to_string()),
+            command_id: Some("find_large".to_string()),
+            input_records: Vec::new(),
+        });
+        app.values
+            .insert("path".to_string(), "./changed".to_string());
+        app.enabled.clear();
+        app.error = Some("stale error".to_string());
+
+        app.reset_current_form_to_defaults();
+
+        assert_eq!(app.values.get("path").map(String::as_str), Some("."));
+        assert!(app.enabled.contains("hidden"));
+        assert_eq!(app.form_idx, 0);
+        assert!(app.error.is_none());
     }
 
     #[test]
@@ -1057,11 +1132,16 @@ mod tests {
         find_large.params.push(Param {
             name: "path".to_string(),
             label: Some("路径".to_string()),
-            default: None,
+            default: Some(".".to_string()),
             placeholder: None,
             help: None,
             secret: false,
             choices: None,
+        });
+        find_large.options.push(OptionDef {
+            id: "hidden".to_string(),
+            label: Some("包含隐藏文件".to_string()),
+            default_enabled: true,
         });
         commands.insert("find_large".to_string(), find_large);
         commands.insert(

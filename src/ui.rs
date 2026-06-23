@@ -64,6 +64,10 @@ pub fn draw(f: &mut Frame, app: &App) {
             ),
         areas.preview,
     );
+
+    if app.show_help {
+        draw_help_popup(f, f.area());
+    }
 }
 
 fn draw_header(f: &mut Frame, app: &App, area: Rect) {
@@ -102,7 +106,7 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect) {
             },
         ),
         Span::styled(
-            " Tab/←→切换  Ctrl+y执行  q退出",
+            " Tab/←→切换  F1/?帮助  Ctrl+y执行  q退出",
             Style::default().fg(Color::DarkGray),
         ),
     ]);
@@ -141,6 +145,85 @@ fn draw_execute_button(f: &mut Frame, app: &App, area: Rect) {
             .style(style),
         area,
     );
+}
+
+fn draw_help_popup(f: &mut Frame, area: Rect) {
+    let popup = centered_rect(area, 72, 20);
+    let rows = vec![
+        Line::from(vec![
+            Span::styled("F1 / ?", key_style()),
+            Span::raw(" 打开或关闭此窗口"),
+        ]),
+        Line::from(vec![
+            Span::styled("Esc", key_style()),
+            Span::raw(" 关闭弹窗 / 退出搜索"),
+        ]),
+        Line::from(vec![
+            Span::styled("q", key_style()),
+            Span::raw(" 退出，不执行命令"),
+        ]),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("Tab / Shift+Tab", key_style()),
+            Span::raw(" 切换区域"),
+        ]),
+        Line::from(vec![
+            Span::styled("Left / Right", key_style()),
+            Span::raw(" 切换区域"),
+        ]),
+        Line::from(vec![
+            Span::styled("Up / Down / j / k", key_style()),
+            Span::raw(" 移动选择"),
+        ]),
+        Line::from(vec![
+            Span::styled("Enter", key_style()),
+            Span::raw(" 进入区域或编辑参数"),
+        ]),
+        Line::from(vec![
+            Span::styled("Space", key_style()),
+            Span::raw(" 切换选项或 choices 参数"),
+        ]),
+        Line::from(""),
+        Line::from(vec![Span::styled("/", key_style()), Span::raw(" 搜索命令")]),
+        Line::from(vec![
+            Span::styled("Ctrl+d", key_style()),
+            Span::raw(" 当前命令回到配置默认值"),
+        ]),
+        Line::from(vec![
+            Span::styled("Ctrl+r", key_style()),
+            Span::raw(" 重新加载配置"),
+        ]),
+        Line::from(vec![
+            Span::styled("Ctrl+y", key_style()),
+            Span::raw(" 执行当前命令"),
+        ]),
+    ];
+
+    f.render_widget(Clear, popup);
+    f.render_widget(
+        Paragraph::new(rows)
+            .style(Style::default().fg(Color::White))
+            .wrap(Wrap { trim: false })
+            .block(
+                Block::default()
+                    .title(Span::styled(
+                        " 快捷键 ",
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::BOLD),
+                    ))
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Yellow)),
+            ),
+        popup,
+    );
+}
+
+fn key_style() -> Style {
+    Style::default()
+        .fg(Color::Black)
+        .bg(Color::LightYellow)
+        .add_modifier(Modifier::BOLD)
 }
 
 fn block(t: &str, focus: bool) -> Block<'static> {
@@ -459,10 +542,22 @@ fn execute_button_area(header: Rect) -> Rect {
     }
 }
 
+fn centered_rect(area: Rect, max_width: u16, max_height: u16) -> Rect {
+    let width = max_width.min(area.width.saturating_sub(2)).max(1);
+    let height = max_height.min(area.height.saturating_sub(2)).max(1);
+    Rect {
+        x: area.x + area.width.saturating_sub(width) / 2,
+        y: area.y + area.height.saturating_sub(height) / 2,
+        width,
+        height,
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{edit_display, source_short_label};
+    use super::{centered_rect, edit_display, source_short_label};
     use crate::template::Source;
+    use ratatui::prelude::Rect;
 
     #[test]
     fn source_labels_are_compact() {
@@ -474,5 +569,14 @@ mod tests {
     fn edit_display_places_cursor_by_character_index() {
         assert_eq!(edit_display("a中c", 2), "a中▌c");
         assert_eq!(edit_display("a中c", 10), "a中c▌");
+    }
+
+    #[test]
+    fn centered_rect_stays_inside_area() {
+        let area = Rect::new(0, 0, 40, 12);
+
+        let popup = centered_rect(area, 72, 20);
+
+        assert_eq!(popup, Rect::new(1, 1, 38, 10));
     }
 }
