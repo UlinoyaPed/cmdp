@@ -24,6 +24,10 @@ pub fn global_paths() -> Result<Vec<PathBuf>> {
     toml_files_in_dir(&global_dir()?)
 }
 
+pub fn settings_path() -> Result<PathBuf> {
+    Ok(global_dir()?.join("settings.toml"))
+}
+
 pub fn find_local(start: &Path) -> Option<PathBuf> {
     let home = BaseDirs::new().map(|b| b.home_dir().to_path_buf());
     for dir in start.ancestors() {
@@ -40,7 +44,10 @@ pub fn find_local(start: &Path) -> Option<PathBuf> {
 
 pub fn load() -> Result<Config> {
     ensure_global_dir()?;
-    let mut merged = Config::default();
+    let mut merged = Config {
+        settings: load_settings()?,
+        ..Config::default()
+    };
     for gp in global_paths()? {
         merge_file(&mut merged, &gp, Source::Global)?;
     }
@@ -79,6 +86,23 @@ fn merge_file(merged: &mut Config, path: &Path, source: Source) -> Result<()> {
     Ok(())
 }
 
+fn load_settings() -> Result<Settings> {
+    load_settings_from_path(&settings_path()?)
+}
+
+fn load_settings_from_path(path: &Path) -> Result<Settings> {
+    if !path.exists() {
+        return Ok(Settings::default());
+    }
+
+    let text = fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
+    if text.trim().is_empty() {
+        return Ok(Settings::default());
+    }
+
+    toml::from_str(&text).with_context(|| format!("parse {}", path.display()))
+}
+
 fn toml_files_in_dir(dir: &Path) -> Result<Vec<PathBuf>> {
     if !dir.exists() {
         return Ok(Vec::new());
@@ -93,12 +117,18 @@ fn toml_files_in_dir(dir: &Path) -> Result<Vec<PathBuf>> {
             .extension()
             .and_then(|extension| extension.to_str())
             .is_some_and(|extension| extension.eq_ignore_ascii_case("toml"));
-        if path.is_file() && is_toml {
+        if path.is_file() && is_toml && !is_settings_file(&path) {
             paths.push(path);
         }
     }
     paths.sort();
     Ok(paths)
+}
+
+fn is_settings_file(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name == "settings.toml")
 }
 
 fn validate(cfg: &Config) -> Result<()> {
@@ -164,7 +194,7 @@ fn validate_id(kind: &str, id: &str) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{merge_file, toml_files_in_dir};
+    use super::{load_settings_from_path, merge_file, toml_files_in_dir};
     use crate::template::{Config, Source};
     use std::{
         fs,
@@ -178,6 +208,7 @@ mod tests {
         fs::create_dir_all(dir.join("nested")).unwrap();
         fs::write(dir.join("b.toml"), "").unwrap();
         fs::write(dir.join("a.toml"), "").unwrap();
+        fs::write(dir.join("settings.toml"), "").unwrap();
         fs::write(dir.join("README.md"), "").unwrap();
         fs::write(dir.join("nested").join("c.toml"), "").unwrap();
 
@@ -264,6 +295,30 @@ template = "echo local"
         assert_eq!(shared.template, "echo local");
         assert_eq!(shared.source, Source::Local);
         assert!(merged.commands.contains_key("first"));
+
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn settings_are_loaded_from_dedicated_file() {
+        let dir = temp_config_dir();
+        fs::create_dir_all(&dir).unwrap();
+        let settings = dir.join("settings.toml");
+        fs::write(
+            &settings,
+            r#"
+remember_last_selection = true
+remember_last_input = true
+input_record_limit = 7
+"#,
+        )
+        .unwrap();
+
+        let settings = load_settings_from_path(&settings).unwrap();
+
+        assert!(settings.remember_last_selection);
+        assert!(settings.remember_last_input);
+        assert_eq!(settings.input_record_limit, 7);
 
         fs::remove_dir_all(dir).unwrap();
     }

@@ -74,6 +74,18 @@ cargo run
 
 当前仓库也带了一个 `.cmdp.toml`，用于覆盖或追加适合本项目的本地命令。你在仓库根目录或子目录启动 `cmdp` 时，会额外看到 `cmdp 开发` 和 `cmdp 发布` 两组命令，例如格式检查、测试、Clippy、本地发布检查、安装当前 checkout、预览 README 和复制示例配置。
 
+记住上次选择默认关闭。需要启用时，创建独立设置文件 `~/.config/cmdp/settings.toml`：
+
+```toml
+remember_last_selection = true
+remember_last_input = true
+input_record_limit = 20
+```
+
+这个文件只放程序设置，不参与命令配置合并；`settings.toml` 也会从全局命令配置列表里排除。开启后，`cmdp` 会把最近选择的分类、命令和输入快照写入 `${XDG_STATE_HOME:-~/.local/state}/cmdp/state.toml`，下次启动或 `Ctrl+r` 重新加载后恢复。
+
+`remember_last_selection` 控制是否恢复上次选中的分类和命令；`remember_last_input` 控制是否按命令 ID 恢复上次输入的普通参数值和可选片段状态；`input_record_limit` 控制最多保留多少条命令输入记录，默认是 `20`。`secret = true` 的参数不会写入状态文件。把对应开关改为 `false` 或删除设置文件即可关闭。
+
 ## 示例配置
 
 `examples/` 下的示例配置按使用场景拆分，适合按需复制到全局配置目录：

@@ -6,6 +6,7 @@ mod output;
 mod parser;
 mod preview;
 mod renderer;
+mod state;
 mod template;
 mod ui;
 use anyhow::Result;

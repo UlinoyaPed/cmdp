@@ -1,7 +1,7 @@
 use crate::{
     config,
     parser::{self, ParsedTemplate},
-    preview, renderer,
+    preview, renderer, state,
     template::*,
 };
 use std::collections::{HashMap, HashSet};
@@ -72,6 +72,7 @@ impl App {
             danger_confirmation: None,
         };
         app.reset_form();
+        app.restore_last_selection();
         app
     }
 
@@ -85,8 +86,9 @@ impl App {
                 self.edit_cursor = 0;
                 self.search_editing = false;
                 self.search_query.clear();
-                self.reset_form();
                 self.error = None;
+                self.reset_form();
+                self.restore_last_selection();
                 self.danger_confirmation = None;
             }
             Err(e) => self.error = Some(e.to_string()),
@@ -151,6 +153,7 @@ impl App {
                 }
             }
         }
+        self.restore_current_input();
     }
 
     pub fn form_items(&self) -> Vec<FormItem> {
@@ -231,6 +234,7 @@ impl App {
             self.search_editing = false;
             self.search_query.clear();
             self.reset_form();
+            self.persist_selection();
         }
     }
 
@@ -243,6 +247,7 @@ impl App {
             self.command_idx = idx;
             self.sync_category_to_current_command();
             self.reset_form();
+            self.persist_selection();
         }
     }
 
@@ -270,12 +275,14 @@ impl App {
                 self.search_editing = false;
                 self.search_query.clear();
                 self.reset_form();
+                self.persist_selection();
             }
             Focus::Commands => {
                 let n = self.visible_commands().len();
                 self.command_idx = step(self.command_idx, n, delta);
                 self.sync_category_to_current_command();
                 self.reset_form();
+                self.persist_selection();
             }
             Focus::Form => {
                 self.form_idx = step(self.form_idx, self.form_len(), delta);
@@ -298,9 +305,11 @@ impl App {
                 }
                 Some(FormItem::Param { name, choices, .. }) => {
                     cycle_choice(&mut self.values, &name, &choices);
+                    self.persist_current_input();
                 }
                 Some(FormItem::Option { id, .. }) => {
                     self.toggle_option(&id);
+                    self.persist_current_input();
                 }
                 None => {}
             },
@@ -319,6 +328,7 @@ impl App {
                 if self.focus == Focus::Form && !choices.is_empty() =>
             {
                 cycle_choice(&mut self.values, &name, &choices);
+                self.persist_current_input();
             }
             _ => {}
         }
@@ -333,6 +343,7 @@ impl App {
         self.edit_cursor = 0;
         self.error = None;
         self.danger_confirmation = None;
+        self.persist_current_input();
     }
 
     pub fn cancel_edit(&mut self) {
@@ -479,6 +490,7 @@ impl App {
             return;
         }
 
+        self.persist_current_input();
         self.output = Some(rendered.text);
         self.should_quit = true;
     }
@@ -505,6 +517,167 @@ impl App {
         {
             self.category_idx = idx;
         }
+    }
+
+    fn restore_last_selection(&mut self) {
+        if !self.config.settings.remember_last_selection {
+            return;
+        }
+
+        match state::load() {
+            Ok(Some(state)) => self.apply_selection_state(&state),
+            Ok(None) => {}
+            Err(error) => self.error = Some(format!("读取上次选择失败：{error}")),
+        }
+    }
+
+    fn persist_selection(&mut self) {
+        if !self.config.settings.remember_last_selection {
+            return;
+        }
+
+        let mut app_state = self.load_app_state_or_default();
+        app_state.category_id = self.current_category_id().cloned();
+        app_state.command_id = self.current_command().map(|(id, _)| id.clone());
+        self.clamp_input_records(&mut app_state);
+        if let Err(error) = state::save(&app_state) {
+            self.error = Some(format!("保存上次选择失败：{error}"));
+        }
+    }
+
+    fn restore_current_input(&mut self) {
+        if !self.config.settings.remember_last_input {
+            return;
+        }
+
+        match state::load() {
+            Ok(Some(state)) => self.apply_current_input(&state),
+            Ok(None) => {}
+            Err(error) => self.error = Some(format!("读取上次输入失败：{error}")),
+        }
+    }
+
+    fn persist_current_input(&mut self) {
+        if !self.config.settings.remember_last_input {
+            return;
+        }
+
+        let Some((command_id, command)) = self.current_command() else {
+            return;
+        };
+        let command_id = command_id.clone();
+        let remembered_params: HashSet<_> = command
+            .params
+            .iter()
+            .filter(|param| !param.secret)
+            .map(|param| param.name.clone())
+            .collect();
+        let mut app_state = self.load_app_state_or_default();
+        let record = InputRecord {
+            command_id: command_id.clone(),
+            values: self
+                .values
+                .iter()
+                .filter(|(name, _)| remembered_params.contains(name.as_str()))
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
+            enabled: sorted_enabled(&self.enabled),
+        };
+        app_state
+            .input_records
+            .retain(|record| record.command_id != command_id);
+        app_state.input_records.insert(0, record);
+        self.clamp_input_records(&mut app_state);
+        if let Err(error) = state::save(&app_state) {
+            self.error = Some(format!("保存上次输入失败：{error}"));
+        }
+    }
+
+    fn load_app_state_or_default(&mut self) -> AppState {
+        match state::load() {
+            Ok(Some(state)) => state,
+            Ok(None) => AppState::default(),
+            Err(error) => {
+                self.error = Some(format!("读取状态失败：{error}"));
+                AppState::default()
+            }
+        }
+    }
+
+    fn apply_selection_state(&mut self, state: &AppState) {
+        if let Some(command_id) = state.command_id.as_deref()
+            && let Some((_, command)) = self.config.commands.get_key_value(command_id)
+        {
+            if let Some(category_idx) = self
+                .category_ids()
+                .iter()
+                .position(|id| id.as_str() == command.category)
+            {
+                self.category_idx = category_idx;
+            }
+            if let Some(command_idx) = self
+                .visible_commands()
+                .iter()
+                .position(|(id, _)| id.as_str() == command_id)
+            {
+                self.command_idx = command_idx;
+                self.reset_form();
+                return;
+            }
+        }
+
+        if let Some(category_id) = state.category_id.as_deref()
+            && let Some(category_idx) = self
+                .category_ids()
+                .iter()
+                .position(|id| id.as_str() == category_id)
+        {
+            self.category_idx = category_idx;
+            self.command_idx = 0;
+            self.reset_form();
+        }
+    }
+
+    fn apply_current_input(&mut self, state: &AppState) {
+        let Some((command_id, command)) = self.current_command() else {
+            return;
+        };
+        let command_id = command_id.clone();
+        let param_names: HashSet<_> = command
+            .params
+            .iter()
+            .map(|param| param.name.clone())
+            .collect();
+        let option_ids: HashSet<_> = command
+            .options
+            .iter()
+            .map(|option| option.id.clone())
+            .collect();
+        let Some(record) = state
+            .input_records
+            .iter()
+            .find(|record| record.command_id == command_id)
+        else {
+            return;
+        };
+
+        for (name, value) in &record.values {
+            if param_names.contains(name) {
+                self.values.insert(name.clone(), value.clone());
+            }
+        }
+
+        self.enabled = record
+            .enabled
+            .iter()
+            .filter(|id| option_ids.contains(id.as_str()))
+            .cloned()
+            .collect();
+    }
+
+    fn clamp_input_records(&self, state: &mut AppState) {
+        let limit = self.config.settings.input_record_limit;
+        state.input_records.truncate(limit);
     }
 
     fn matches_search(&self, id: &str, cmd: &Command, query: &str) -> bool {
@@ -605,6 +778,12 @@ fn cycle_choice(values: &mut HashMap<String, String>, name: &str, choices: &[Str
         .and_then(|v| choices.iter().position(|c| c == v))
         .unwrap_or(choices.len() - 1);
     values.insert(name.to_string(), choices[(pos + 1) % choices.len()].clone());
+}
+
+fn sorted_enabled(enabled: &HashSet<String>) -> Vec<String> {
+    let mut enabled: Vec<_> = enabled.iter().cloned().collect();
+    enabled.sort();
+    enabled
 }
 
 fn byte_index(value: &str, char_index: usize) -> usize {
@@ -781,6 +960,74 @@ mod tests {
         assert!(preview.contains(".cmdp.toml"));
     }
 
+    #[test]
+    fn applies_last_selection_by_stable_command_id() {
+        let mut app = App::new(test_config());
+
+        app.apply_selection_state(&AppState {
+            category_id: Some("file".to_string()),
+            command_id: Some("cargo_check".to_string()),
+            input_records: Vec::new(),
+        });
+
+        assert_eq!(app.current_category_id().map(String::as_str), Some("dev"));
+        assert_eq!(
+            app.current_command().map(|(id, _)| id.as_str()),
+            Some("cargo_check")
+        );
+    }
+
+    #[test]
+    fn applies_last_input_for_current_command_only() {
+        let mut app = App::new(test_config());
+        app.apply_selection_state(&AppState {
+            category_id: Some("file".to_string()),
+            command_id: Some("find_large".to_string()),
+            input_records: Vec::new(),
+        });
+        app.values.insert("path".to_string(), ".".to_string());
+
+        app.apply_current_input(&AppState {
+            category_id: None,
+            command_id: None,
+            input_records: vec![InputRecord {
+                command_id: "find_large".to_string(),
+                values: [("path".to_string(), "./src".to_string())].into(),
+                enabled: vec!["unused".to_string()],
+            }],
+        });
+
+        assert_eq!(app.values.get("path").map(String::as_str), Some("./src"));
+        assert!(app.enabled.is_empty());
+    }
+
+    #[test]
+    fn clamps_input_records_to_configured_limit() {
+        let mut app = App::new(test_config());
+        app.config.settings.input_record_limit = 1;
+        let mut state = AppState {
+            category_id: None,
+            command_id: None,
+            input_records: vec![
+                InputRecord {
+                    command_id: "first".to_string(),
+                    values: Default::default(),
+                    enabled: Vec::new(),
+                },
+                InputRecord {
+                    command_id: "second".to_string(),
+                    values: Default::default(),
+                    enabled: Vec::new(),
+                },
+            ],
+        };
+
+        app.clamp_input_records(&mut state);
+
+        assert_eq!(state.input_records.len(), 1);
+        assert_eq!(state.input_records[0].command_id, "first");
+    }
+
     fn test_config() -> Config {
         let mut categories = IndexMap::new();
         categories.insert(
@@ -806,10 +1053,17 @@ mod tests {
         );
 
         let mut commands = IndexMap::new();
-        commands.insert(
-            "find_large".to_string(),
-            command("file", "查找大文件", "find <<{{path}}>>", Source::Global),
-        );
+        let mut find_large = command("file", "查找大文件", "find <<{{path}}>>", Source::Global);
+        find_large.params.push(Param {
+            name: "path".to_string(),
+            label: Some("路径".to_string()),
+            default: None,
+            placeholder: None,
+            help: None,
+            secret: false,
+            choices: None,
+        });
+        commands.insert("find_large".to_string(), find_large);
         commands.insert(
             "clean_target".to_string(),
             dangerous_command("file", "删除 target", "rm -rf ./target", Source::Global),
@@ -824,6 +1078,7 @@ mod tests {
         );
 
         Config {
+            settings: Settings::default(),
             categories,
             commands,
             sources: vec!["global:/tmp/commands.toml".to_string()],
