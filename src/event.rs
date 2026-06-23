@@ -19,6 +19,19 @@ pub fn handle_key(app: &mut App, key: KeyEvent) {
         return;
     }
 
+    if app.file_picker.is_some() {
+        match key.code {
+            KeyCode::Esc | KeyCode::Char('f') => app.close_file_picker(),
+            KeyCode::Up | KeyCode::Char('k') => app.move_file_picker(false),
+            KeyCode::Down | KeyCode::Char('j') => app.move_file_picker(true),
+            KeyCode::Left | KeyCode::Backspace => app.file_picker_parent(),
+            KeyCode::Right | KeyCode::Enter => app.file_picker_activate(),
+            KeyCode::Char(' ') => app.file_picker_select(),
+            _ => {}
+        }
+        return;
+    }
+
     if app.search_editing {
         match (key.code, key.modifiers) {
             (KeyCode::Esc, _) | (KeyCode::Enter, _) => app.finish_search(),
@@ -62,6 +75,7 @@ pub fn handle_key(app: &mut App, key: KeyEvent) {
         (KeyCode::Up, _) | (KeyCode::Char('k'), _) => app.move_sel(false),
         (KeyCode::Down, _) | (KeyCode::Char('j'), _) => app.move_sel(true),
         (KeyCode::Enter, _) => app.activate(),
+        (KeyCode::Char('f'), KeyModifiers::NONE) => app.open_file_picker(),
         (KeyCode::Char(' '), _) => app.toggle(),
         (KeyCode::Char('d'), KeyModifiers::CONTROL) => app.reset_current_form_to_defaults(),
         (KeyCode::Char('r'), KeyModifiers::CONTROL) => app.reload(),
@@ -71,6 +85,10 @@ pub fn handle_key(app: &mut App, key: KeyEvent) {
 }
 
 pub fn handle_mouse(app: &mut App, mouse: MouseEvent, screen: Rect) {
+    if app.show_help || app.file_picker.is_some() {
+        return;
+    }
+
     let areas = ui::areas(screen);
     match mouse.kind {
         MouseEventKind::Down(MouseButton::Left) => {

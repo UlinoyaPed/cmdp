@@ -68,6 +68,9 @@ pub fn draw(f: &mut Frame, app: &App) {
     if app.show_help {
         draw_help_popup(f, f.area());
     }
+    if app.file_picker.is_some() {
+        draw_file_picker_popup(f, app, f.area());
+    }
 }
 
 fn draw_header(f: &mut Frame, app: &App, area: Rect) {
@@ -106,7 +109,7 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect) {
             },
         ),
         Span::styled(
-            " Tab/←→切换  F1/?帮助  Ctrl+y执行  q退出",
+            " Tab/←→切换  f文件  F1/?帮助  Ctrl+y执行  q退出",
             Style::default().fg(Color::DarkGray),
         ),
     ]);
@@ -186,6 +189,10 @@ fn draw_help_popup(f: &mut Frame, area: Rect) {
         Line::from(""),
         Line::from(vec![Span::styled("/", key_style()), Span::raw(" 搜索命令")]),
         Line::from(vec![
+            Span::styled("f", key_style()),
+            Span::raw(" 为当前输入参数选择文件"),
+        ]),
+        Line::from(vec![
             Span::styled("Ctrl+d", key_style()),
             Span::raw(" 当前命令回到配置默认值"),
         ]),
@@ -224,6 +231,116 @@ fn key_style() -> Style {
         .fg(Color::Black)
         .bg(Color::LightYellow)
         .add_modifier(Modifier::BOLD)
+}
+
+fn draw_file_picker_popup(f: &mut Frame, app: &App, area: Rect) {
+    let Some(picker) = &app.file_picker else {
+        return;
+    };
+    let popup = centered_rect(area, 78, 22);
+    let inner = popup.inner(Margin {
+        horizontal: 1,
+        vertical: 1,
+    });
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(2), Constraint::Min(3)])
+        .split(inner);
+    let title = format!(
+        " 文件选择  {} ",
+        truncate(&picker.dir.display().to_string(), 54)
+    );
+
+    f.render_widget(Clear, popup);
+    f.render_widget(
+        Block::default()
+            .title(Span::styled(
+                title,
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ))
+            .title_bottom(Span::styled(
+                " Enter进入/选择  Space选择高亮项  ./当前目录  ←/Backspace上级  Esc/f关闭 ",
+                Style::default().fg(Color::DarkGray),
+            ))
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Yellow)),
+        popup,
+    );
+
+    let target = app
+        .form_items()
+        .get(app.form_idx)
+        .and_then(|item| match item {
+            FormItem::Param { label, .. } => Some(label.clone()),
+            FormItem::Option { .. } => None,
+        })
+        .unwrap_or_else(|| picker.param_name.clone());
+    f.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::styled("目标参数 ", Style::default().fg(Color::DarkGray)),
+            Span::styled(target, Style::default().fg(Color::LightGreen)),
+        ])),
+        chunks[0],
+    );
+
+    if let Some(error) = &picker.error {
+        f.render_widget(
+            Paragraph::new(error.as_str())
+                .style(Style::default().fg(Color::Red))
+                .wrap(Wrap { trim: false }),
+            chunks[1],
+        );
+        return;
+    }
+
+    let rows: Vec<_> = if picker.entries.is_empty() {
+        vec![ListItem::new(Line::from(Span::styled(
+            "目录为空",
+            Style::default().fg(Color::DarkGray),
+        )))]
+    } else {
+        picker
+            .entries
+            .iter()
+            .map(|entry| {
+                let icon = if entry.is_dir { "d " } else { "f " };
+                let name = if entry.name == "." {
+                    "./".to_string()
+                } else if entry.is_dir {
+                    format!("{}/", entry.name)
+                } else {
+                    entry.name.clone()
+                };
+                ListItem::new(Line::from(vec![
+                    Span::styled(
+                        icon,
+                        Style::default().fg(if entry.is_dir {
+                            Color::LightBlue
+                        } else {
+                            Color::DarkGray
+                        }),
+                    ),
+                    Span::styled(name, Style::default().fg(Color::White)),
+                ]))
+            })
+            .collect()
+    };
+
+    let mut state = ListState::default();
+    if picker.entries.is_empty() {
+        state.select(None);
+    } else {
+        state.select(Some(picker.selected));
+    }
+    f.render_stateful_widget(
+        List::new(rows)
+            .highlight_symbol("› ")
+            .highlight_style(Style::default().bg(Color::DarkGray).fg(Color::White)),
+        chunks[1],
+        &mut state,
+    );
 }
 
 fn block(t: &str, focus: bool) -> Block<'static> {

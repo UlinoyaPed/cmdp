@@ -4,7 +4,11 @@ use crate::{
     preview, renderer, state,
     template::*,
 };
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    fs,
+    path::{Path, PathBuf},
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Focus {
@@ -32,6 +36,22 @@ pub enum FormItem {
     },
 }
 
+#[derive(Debug, Clone)]
+pub struct FilePicker {
+    pub param_name: String,
+    pub dir: PathBuf,
+    pub entries: Vec<FilePickerEntry>,
+    pub selected: usize,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct FilePickerEntry {
+    pub name: String,
+    pub path: PathBuf,
+    pub is_dir: bool,
+}
+
 pub struct App {
     pub config: Config,
     pub category_idx: usize,
@@ -50,6 +70,7 @@ pub struct App {
     pub error: Option<String>,
     pub danger_confirmation: Option<String>,
     pub show_help: bool,
+    pub file_picker: Option<FilePicker>,
 }
 
 impl App {
@@ -72,6 +93,7 @@ impl App {
             error: None,
             danger_confirmation: None,
             show_help: false,
+            file_picker: None,
         };
         app.reset_form();
         app.restore_last_selection();
@@ -88,6 +110,7 @@ impl App {
                 self.edit_cursor = 0;
                 self.search_editing = false;
                 self.search_query.clear();
+                self.file_picker = None;
                 self.error = None;
                 self.reset_form();
                 self.restore_last_selection();
@@ -248,6 +271,88 @@ impl App {
         self.show_help = false;
     }
 
+    pub fn open_file_picker(&mut self) {
+        self.error = None;
+        self.danger_confirmation = None;
+        let Some(FormItem::Param { name, choices, .. }) =
+            self.form_items().get(self.form_idx).cloned()
+        else {
+            self.error = Some("当前项不是可输入参数，不能打开文件选择".to_string());
+            return;
+        };
+        if !choices.is_empty() {
+            self.error = Some("当前项不是可输入参数，不能打开文件选择".to_string());
+            return;
+        }
+
+        let dir = self.file_picker_start_dir(&name);
+        self.focus = Focus::Form;
+        self.file_picker = Some(load_file_picker(name, dir));
+    }
+
+    pub fn close_file_picker(&mut self) {
+        self.file_picker = None;
+    }
+
+    pub fn move_file_picker(&mut self, down: bool) {
+        let Some(picker) = self.file_picker.as_mut() else {
+            return;
+        };
+        picker.selected = step(
+            picker.selected,
+            picker.entries.len(),
+            if down { 1 } else { -1 },
+        );
+    }
+
+    pub fn file_picker_parent(&mut self) {
+        let Some(picker) = self.file_picker.as_ref() else {
+            return;
+        };
+        let param_name = picker.param_name.clone();
+        let parent = picker.dir.parent().map(Path::to_path_buf);
+        if let Some(parent) = parent {
+            self.file_picker = Some(load_file_picker(param_name, parent));
+        }
+    }
+
+    pub fn file_picker_activate(&mut self) {
+        let Some(entry) = self
+            .file_picker
+            .as_ref()
+            .and_then(|picker| picker.entries.get(picker.selected).cloned())
+        else {
+            return;
+        };
+
+        if entry.is_dir {
+            let param_name = self
+                .file_picker
+                .as_ref()
+                .map(|picker| picker.param_name.clone())
+                .unwrap_or_default();
+            self.file_picker = Some(load_file_picker(param_name, entry.path));
+        } else {
+            self.file_picker_select();
+        }
+    }
+
+    pub fn file_picker_select(&mut self) {
+        let Some((param_name, path)) = self.file_picker.as_ref().and_then(|picker| {
+            picker
+                .entries
+                .get(picker.selected)
+                .map(|entry| (picker.param_name.clone(), entry.path.clone()))
+        }) else {
+            return;
+        };
+        self.values.insert(param_name, display_path(&path));
+        self.file_picker = None;
+        self.error = None;
+        self.danger_confirmation = None;
+        self.persist_current_input();
+    }
+
     pub fn select_category(&mut self, idx: usize) {
         if idx < self.category_ids().len() {
             self.error = None;
@@ -257,6 +362,7 @@ impl App {
             self.command_idx = 0;
             self.search_editing = false;
             self.search_query.clear();
+            self.file_picker = None;
             self.reset_form();
             self.persist_selection();
         }
@@ -268,6 +374,7 @@ impl App {
             self.danger_confirmation = None;
             self.focus = Focus::Commands;
             self.search_editing = false;
+            self.file_picker = None;
             self.command_idx = idx;
             self.sync_category_to_current_command();
             self.reset_form();
@@ -281,6 +388,7 @@ impl App {
             self.danger_confirmation = None;
             self.focus = Focus::Form;
             self.form_idx = idx;
+            self.file_picker = None;
             if activate {
                 self.activate();
             }
@@ -298,12 +406,14 @@ impl App {
                 self.command_idx = 0;
                 self.search_editing = false;
                 self.search_query.clear();
+                self.file_picker = None;
                 self.reset_form();
                 self.persist_selection();
             }
             Focus::Commands => {
                 let n = self.visible_commands().len();
                 self.command_idx = step(self.command_idx, n, delta);
+                self.file_picker = None;
                 self.sync_category_to_current_command();
                 self.reset_form();
                 self.persist_selection();
@@ -318,6 +428,7 @@ impl App {
         self.error = None;
         self.danger_confirmation = None;
         self.search_editing = false;
+        self.file_picker = None;
         match self.focus {
             Focus::Categories => self.focus = Focus::Commands,
             Focus::Commands => self.focus = Focus::Form,
@@ -344,6 +455,7 @@ impl App {
         self.error = None;
         self.danger_confirmation = None;
         self.search_editing = false;
+        self.file_picker = None;
         match self.form_items().get(self.form_idx).cloned() {
             Some(FormItem::Option { id, .. }) if self.focus == Focus::Form => {
                 self.toggle_option(&id);
@@ -457,6 +569,7 @@ impl App {
         self.error = None;
         self.focus = Focus::Commands;
         self.search_editing = true;
+        self.file_picker = None;
         self.command_idx = 0;
         self.sync_category_to_current_command();
         self.reset_form();
@@ -759,6 +872,87 @@ impl App {
     fn clamp_edit_cursor(&mut self) {
         self.edit_cursor = self.edit_cursor.min(self.edit_buffer.chars().count());
     }
+
+    fn file_picker_start_dir(&self, param_name: &str) -> PathBuf {
+        let current_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        let Some(value) = self
+            .values
+            .get(param_name)
+            .filter(|value| !value.is_empty())
+        else {
+            return current_dir;
+        };
+        let path = PathBuf::from(value);
+        let path = if path.is_absolute() {
+            path
+        } else {
+            current_dir.join(path)
+        };
+        if path.is_dir() {
+            path
+        } else if let Some(parent) = path.parent().filter(|parent| parent.is_dir()) {
+            parent.to_path_buf()
+        } else {
+            current_dir
+        }
+    }
+}
+
+fn load_file_picker(param_name: String, dir: PathBuf) -> FilePicker {
+    let mut picker = FilePicker {
+        param_name,
+        dir,
+        entries: Vec::new(),
+        selected: 0,
+        error: None,
+    };
+    match read_file_entries(&picker.dir) {
+        Ok(entries) => picker.entries = entries,
+        Err(error) => picker.error = Some(error),
+    }
+    picker
+}
+
+fn read_file_entries(dir: &Path) -> Result<Vec<FilePickerEntry>, String> {
+    let mut entries = Vec::new();
+    entries.push(FilePickerEntry {
+        name: ".".to_string(),
+        path: dir.to_path_buf(),
+        is_dir: true,
+    });
+    for entry in fs::read_dir(dir).map_err(|error| format!("读取目录失败：{error}"))? {
+        let entry = entry.map_err(|error| format!("读取目录项失败：{error}"))?;
+        let path = entry.path();
+        let file_type = entry
+            .file_type()
+            .map_err(|error| format!("读取文件类型失败：{error}"))?;
+        let name = entry.file_name().to_string_lossy().into_owned();
+        entries.push(FilePickerEntry {
+            name,
+            path,
+            is_dir: file_type.is_dir(),
+        });
+    }
+    entries[1..].sort_by(|a, b| {
+        b.is_dir
+            .cmp(&a.is_dir)
+            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+            .then_with(|| a.name.cmp(&b.name))
+    });
+    Ok(entries)
+}
+
+fn display_path(path: &Path) -> String {
+    let cwd = std::env::current_dir().ok();
+    if let Some(cwd) = cwd
+        && let Ok(relative) = path.strip_prefix(&cwd)
+    {
+        if relative.as_os_str().is_empty() {
+            return ".".to_string();
+        }
+        return relative.display().to_string();
+    }
+    path.display().to_string()
 }
 
 fn push_param_item(
@@ -1078,6 +1272,115 @@ mod tests {
     }
 
     #[test]
+    fn file_picker_select_updates_current_param() {
+        let mut app = App::new(test_config());
+        app.apply_selection_state(&AppState {
+            category_id: Some("file".to_string()),
+            command_id: Some("find_large".to_string()),
+            input_records: Vec::new(),
+        });
+        app.focus = Focus::Form;
+        app.file_picker = Some(FilePicker {
+            param_name: "path".to_string(),
+            dir: PathBuf::from("."),
+            entries: vec![FilePickerEntry {
+                name: "Cargo.toml".to_string(),
+                path: PathBuf::from("Cargo.toml"),
+                is_dir: false,
+            }],
+            selected: 0,
+            error: None,
+        });
+
+        app.file_picker_select();
+
+        assert_eq!(
+            app.values.get("path").map(String::as_str),
+            Some("Cargo.toml")
+        );
+        assert!(app.file_picker.is_none());
+    }
+
+    #[test]
+    fn file_picker_selects_current_directory_entry() {
+        let mut app = App::new(test_config());
+        app.apply_selection_state(&AppState {
+            category_id: Some("file".to_string()),
+            command_id: Some("find_large".to_string()),
+            input_records: Vec::new(),
+        });
+        let dir = std::env::current_dir().unwrap();
+        app.file_picker = Some(FilePicker {
+            param_name: "path".to_string(),
+            dir: dir.clone(),
+            entries: vec![FilePickerEntry {
+                name: ".".to_string(),
+                path: dir,
+                is_dir: true,
+            }],
+            selected: 0,
+            error: None,
+        });
+
+        app.file_picker_select();
+
+        assert_eq!(app.values.get("path").map(String::as_str), Some("."));
+        assert!(app.file_picker.is_none());
+    }
+
+    #[test]
+    fn file_picker_only_opens_for_text_params() {
+        let mut app = App::new(test_config());
+        app.focus = Focus::Form;
+        app.form_idx = 1;
+
+        app.open_file_picker();
+
+        assert!(app.file_picker.is_none());
+        assert!(
+            app.error
+                .as_deref()
+                .is_some_and(|error| error.contains("不能打开文件选择"))
+        );
+    }
+
+    #[test]
+    fn file_picker_opens_for_selected_text_param_outside_form_focus() {
+        let mut app = App::new(test_config());
+        app.apply_selection_state(&AppState {
+            category_id: Some("file".to_string()),
+            command_id: Some("find_large".to_string()),
+            input_records: Vec::new(),
+        });
+        app.focus = Focus::Commands;
+        app.form_idx = 0;
+
+        app.open_file_picker();
+
+        let picker = app.file_picker.as_ref().unwrap();
+        assert_eq!(picker.param_name, "path");
+        assert_eq!(app.focus, Focus::Form);
+    }
+
+    #[test]
+    fn file_entries_sort_directories_first() {
+        let dir = temp_app_dir();
+        fs::create_dir_all(dir.join("z_dir")).unwrap();
+        fs::write(dir.join("a_file"), "").unwrap();
+
+        let entries = read_file_entries(&dir).unwrap();
+
+        assert_eq!(entries[0].name, ".");
+        assert!(entries[0].is_dir);
+        assert_eq!(entries[1].name, "z_dir");
+        assert!(entries[1].is_dir);
+        assert_eq!(entries[2].name, "a_file");
+        assert!(!entries[2].is_dir);
+
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn clamps_input_records_to_configured_limit() {
         let mut app = App::new(test_config());
         app.config.settings.input_record_limit = 1;
@@ -1129,7 +1432,12 @@ mod tests {
         );
 
         let mut commands = IndexMap::new();
-        let mut find_large = command("file", "查找大文件", "find <<{{path}}>>", Source::Global);
+        let mut find_large = command(
+            "file",
+            "查找大文件",
+            "find <<{{path}}>> [[hidden:-hidden]] [[size:-size +{{size}}]]",
+            Source::Global,
+        );
         find_large.params.push(Param {
             name: "path".to_string(),
             label: Some("路径".to_string()),
@@ -1143,6 +1451,11 @@ mod tests {
             id: "hidden".to_string(),
             label: Some("包含隐藏文件".to_string()),
             default_enabled: true,
+        });
+        find_large.options.push(OptionDef {
+            id: "size".to_string(),
+            label: Some("按大小过滤".to_string()),
+            default_enabled: false,
         });
         commands.insert("find_large".to_string(), find_large);
         commands.insert(
@@ -1183,5 +1496,13 @@ mod tests {
         let mut command = command(category, title, template, source);
         command.danger = true;
         command
+    }
+
+    fn temp_app_dir() -> PathBuf {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!("cmdp-app-test-{}-{nonce}", std::process::id()))
     }
 }
