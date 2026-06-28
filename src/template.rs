@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 pub const DEFAULT_INPUT_RECORD_LIMIT: usize = 20;
 
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct RawConfig {
     pub version: Option<u32>,
     #[serde(default)]
@@ -59,17 +59,20 @@ pub struct InputRecord {
     pub enabled: Vec<String>,
 }
 
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct Category {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub alias: Option<String>,
     #[serde(skip)]
     pub source: Source,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Command {
     pub category: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     #[serde(default)]
     pub danger: bool,
@@ -82,21 +85,27 @@ pub struct Command {
     pub source: Source,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Param {
     pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub default: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub placeholder: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub help: Option<String>,
     #[serde(default)]
     pub secret: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub choices: Option<Vec<String>>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct OptionDef {
     pub id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
     #[serde(default)]
     pub default_enabled: bool,

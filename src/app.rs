@@ -7,6 +7,7 @@ use crate::{
 };
 
 const SETTINGS_ITEM_COUNT: usize = 4;
+const CONFIG_EDITOR_FIELD_COUNT: usize = 6;
 use std::{
     collections::{HashMap, HashSet},
     fs,
@@ -55,6 +56,25 @@ pub struct FilePickerEntry {
     pub is_dir: bool,
 }
 
+#[derive(Debug, Clone)]
+pub struct ConfigEditor {
+    pub draft: ConfigDraft,
+    pub selected: usize,
+    pub editing: bool,
+    pub edit_buffer: String,
+    pub edit_cursor: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct ConfigDraft {
+    pub command_id: String,
+    pub category_id: String,
+    pub category_alias: String,
+    pub title: String,
+    pub template: String,
+    pub params: String,
+}
+
 pub struct App {
     pub config: Config,
     pub category_idx: usize,
@@ -75,6 +95,7 @@ pub struct App {
     pub show_help: bool,
     pub show_settings: bool,
     pub settings_idx: usize,
+    pub config_editor: Option<ConfigEditor>,
     pub file_picker: Option<FilePicker>,
 }
 
@@ -100,6 +121,7 @@ impl App {
             show_help: false,
             show_settings: false,
             settings_idx: 0,
+            config_editor: None,
             file_picker: None,
         };
         app.reset_form();
@@ -118,6 +140,7 @@ impl App {
                 self.search_editing = false;
                 self.search_query.clear();
                 self.show_settings = false;
+                self.config_editor = None;
                 self.file_picker = None;
                 self.error = None;
                 self.reset_form();
@@ -296,6 +319,7 @@ impl App {
         self.danger_confirmation = None;
         self.show_help = false;
         self.file_picker = None;
+        self.config_editor = None;
         self.editing = false;
         self.search_editing = false;
         self.show_settings = true;
@@ -323,6 +347,7 @@ impl App {
         self.error = None;
         self.danger_confirmation = None;
         self.show_settings = false;
+        self.config_editor = None;
         let Some(FormItem::Param { name, choices, .. }) =
             self.form_items().get(self.form_idx).cloned()
         else {
@@ -400,6 +425,173 @@ impl App {
         self.error = None;
         self.danger_confirmation = None;
         self.persist_current_input();
+    }
+
+    pub fn open_config_editor(&mut self) {
+        self.error = None;
+        self.danger_confirmation = None;
+        self.show_help = false;
+        self.show_settings = false;
+        self.file_picker = None;
+        self.editing = false;
+        self.search_editing = false;
+        self.config_editor = Some(ConfigEditor {
+            draft: self.current_config_draft(),
+            selected: 0,
+            editing: false,
+            edit_buffer: String::new(),
+            edit_cursor: 0,
+        });
+    }
+
+    pub fn close_config_editor(&mut self) {
+        self.config_editor = None;
+    }
+
+    pub fn reset_config_editor_to_new_command(&mut self) {
+        let draft = self.new_config_draft();
+        if let Some(editor) = self.config_editor.as_mut() {
+            editor.draft = draft;
+            editor.selected = 0;
+            editor.editing = false;
+            editor.edit_buffer.clear();
+            editor.edit_cursor = 0;
+        }
+    }
+
+    pub fn move_config_editor(&mut self, down: bool) {
+        let Some(editor) = self.config_editor.as_mut() else {
+            return;
+        };
+        editor.selected = step(
+            editor.selected,
+            CONFIG_EDITOR_FIELD_COUNT,
+            if down { 1 } else { -1 },
+        );
+    }
+
+    pub fn begin_config_editor_edit(&mut self) {
+        let Some(editor) = self.config_editor.as_mut() else {
+            return;
+        };
+        editor.editing = true;
+        editor.edit_buffer = editor.draft.field(editor.selected).to_string();
+        editor.edit_cursor = editor.edit_buffer.chars().count();
+    }
+
+    pub fn commit_config_editor_edit(&mut self) {
+        let Some(editor) = self.config_editor.as_mut() else {
+            return;
+        };
+        editor
+            .draft
+            .set_field(editor.selected, editor.edit_buffer.clone());
+        editor.editing = false;
+        editor.edit_cursor = 0;
+    }
+
+    pub fn cancel_config_editor_edit(&mut self) {
+        let Some(editor) = self.config_editor.as_mut() else {
+            return;
+        };
+        editor.editing = false;
+        editor.edit_cursor = 0;
+    }
+
+    pub fn insert_config_editor_char(&mut self, c: char) {
+        let Some(editor) = self.config_editor.as_mut() else {
+            return;
+        };
+        clamp_text_cursor(&mut editor.edit_cursor, &editor.edit_buffer);
+        let idx = byte_index(&editor.edit_buffer, editor.edit_cursor);
+        editor.edit_buffer.insert(idx, c);
+        editor.edit_cursor += 1;
+    }
+
+    pub fn backspace_config_editor_char(&mut self) {
+        let Some(editor) = self.config_editor.as_mut() else {
+            return;
+        };
+        clamp_text_cursor(&mut editor.edit_cursor, &editor.edit_buffer);
+        if editor.edit_cursor == 0 {
+            return;
+        }
+        let start = byte_index(&editor.edit_buffer, editor.edit_cursor - 1);
+        let end = byte_index(&editor.edit_buffer, editor.edit_cursor);
+        editor.edit_buffer.replace_range(start..end, "");
+        editor.edit_cursor -= 1;
+    }
+
+    pub fn delete_config_editor_char(&mut self) {
+        let Some(editor) = self.config_editor.as_mut() else {
+            return;
+        };
+        clamp_text_cursor(&mut editor.edit_cursor, &editor.edit_buffer);
+        let len = editor.edit_buffer.chars().count();
+        if editor.edit_cursor >= len {
+            return;
+        }
+        let start = byte_index(&editor.edit_buffer, editor.edit_cursor);
+        let end = byte_index(&editor.edit_buffer, editor.edit_cursor + 1);
+        editor.edit_buffer.replace_range(start..end, "");
+    }
+
+    pub fn move_config_editor_cursor(&mut self, right: bool) {
+        let Some(editor) = self.config_editor.as_mut() else {
+            return;
+        };
+        let len = editor.edit_buffer.chars().count();
+        editor.edit_cursor = if right {
+            (editor.edit_cursor + 1).min(len)
+        } else {
+            editor.edit_cursor.saturating_sub(1)
+        };
+    }
+
+    pub fn move_config_editor_cursor_to_start(&mut self) {
+        if let Some(editor) = self.config_editor.as_mut() {
+            editor.edit_cursor = 0;
+        }
+    }
+
+    pub fn move_config_editor_cursor_to_end(&mut self) {
+        if let Some(editor) = self.config_editor.as_mut() {
+            editor.edit_cursor = editor.edit_buffer.chars().count();
+        }
+    }
+
+    pub fn save_config_editor(&mut self) {
+        if self
+            .config_editor
+            .as_ref()
+            .is_some_and(|editor| editor.editing)
+        {
+            self.commit_config_editor_edit();
+        }
+
+        let Some(editor) = self.config_editor.as_ref() else {
+            return;
+        };
+        let edit = match editor.draft.to_command_edit() {
+            Ok(edit) => edit,
+            Err(error) => {
+                self.error = Some(format!(
+                    "{}{error}",
+                    self.texts().config_editor_invalid_params_prefix
+                ));
+                return;
+            }
+        };
+
+        if let Err(error) = config::save_command_edit(&edit) {
+            self.error = Some(format!(
+                "{}{error}",
+                self.texts().config_editor_save_failed_prefix
+            ));
+            return;
+        }
+
+        self.reload();
     }
 
     pub fn select_category(&mut self, idx: usize) {
@@ -618,6 +810,7 @@ impl App {
         self.focus = Focus::Commands;
         self.search_editing = true;
         self.show_settings = false;
+        self.config_editor = None;
         self.file_picker = None;
         self.command_idx = 0;
         self.sync_category_to_current_command();
@@ -979,6 +1172,48 @@ impl App {
             current_dir
         }
     }
+
+    fn current_config_draft(&self) -> ConfigDraft {
+        if let Some((id, command)) = self.current_command() {
+            let category_alias = self
+                .config
+                .categories
+                .get(&command.category)
+                .and_then(|category| category.alias.clone())
+                .unwrap_or_else(|| command.category.clone());
+            return ConfigDraft {
+                command_id: id.clone(),
+                category_id: command.category.clone(),
+                category_alias,
+                title: command.title.clone().unwrap_or_else(|| id.clone()),
+                template: command.template.clone(),
+                params: params_spec(&command.params),
+            };
+        }
+
+        self.new_config_draft()
+    }
+
+    fn new_config_draft(&self) -> ConfigDraft {
+        let category_id = self
+            .current_category_id()
+            .cloned()
+            .unwrap_or_else(|| "general".to_string());
+        let category_alias = self
+            .config
+            .categories
+            .get(&category_id)
+            .and_then(|category| category.alias.clone())
+            .unwrap_or_else(|| category_id.clone());
+        ConfigDraft {
+            command_id: unique_command_id(&self.config, "new_command"),
+            category_id,
+            category_alias,
+            title: "新命令".to_string(),
+            template: "echo <<{{value}}>>".to_string(),
+            params: "value:参数".to_string(),
+        }
+    }
 }
 
 fn load_file_picker(param_name: String, dir: PathBuf, texts: &'static Texts) -> FilePicker {
@@ -1039,6 +1274,107 @@ fn display_path(path: &Path) -> String {
         return relative.display().to_string();
     }
     path.display().to_string()
+}
+
+impl ConfigDraft {
+    pub fn field(&self, idx: usize) -> &str {
+        match idx {
+            0 => &self.command_id,
+            1 => &self.category_id,
+            2 => &self.category_alias,
+            3 => &self.title,
+            4 => &self.template,
+            5 => &self.params,
+            _ => "",
+        }
+    }
+
+    fn set_field(&mut self, idx: usize, value: String) {
+        match idx {
+            0 => self.command_id = value,
+            1 => self.category_id = value,
+            2 => self.category_alias = value,
+            3 => self.title = value,
+            4 => self.template = value,
+            5 => self.params = value,
+            _ => {}
+        }
+    }
+
+    fn to_command_edit(&self) -> Result<config::CommandEdit, String> {
+        Ok(config::CommandEdit {
+            command_id: self.command_id.trim().to_string(),
+            category_id: self.category_id.trim().to_string(),
+            category_alias: optional_string(&self.category_alias),
+            title: optional_string(&self.title),
+            template: self.template.trim().to_string(),
+            params: parse_params_spec(&self.params)?,
+        })
+    }
+}
+
+fn params_spec(params: &[Param]) -> String {
+    params
+        .iter()
+        .map(|param| match param.label.as_deref() {
+            Some(label) if label != param.name => format!("{}:{label}", param.name),
+            _ => param.name.clone(),
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn parse_params_spec(spec: &str) -> Result<Vec<Param>, String> {
+    let mut params = Vec::new();
+    for item in spec
+        .split(',')
+        .map(str::trim)
+        .filter(|item| !item.is_empty())
+    {
+        let (name, label) = item
+            .split_once(':')
+            .map(|(name, label)| (name.trim(), label.trim()))
+            .unwrap_or((item, ""));
+        if name.is_empty() {
+            return Err("empty parameter name".to_string());
+        }
+        params.push(Param {
+            name: name.to_string(),
+            label: if label.is_empty() {
+                None
+            } else {
+                Some(label.to_string())
+            },
+            default: None,
+            placeholder: None,
+            help: None,
+            secret: false,
+            choices: None,
+        });
+    }
+    Ok(params)
+}
+
+fn optional_string(value: &str) -> Option<String> {
+    let value = value.trim();
+    if value.is_empty() {
+        None
+    } else {
+        Some(value.to_string())
+    }
+}
+
+fn unique_command_id(config: &Config, base: &str) -> String {
+    if !config.commands.contains_key(base) {
+        return base.to_string();
+    }
+    for idx in 2.. {
+        let candidate = format!("{base}_{idx}");
+        if !config.commands.contains_key(&candidate) {
+            return candidate;
+        }
+    }
+    unreachable!()
 }
 
 fn push_param_item(
@@ -1133,6 +1469,10 @@ fn byte_index(value: &str, char_index: usize) -> usize {
         .map(|(idx, _)| idx)
         .nth(char_index)
         .unwrap_or(value.len())
+}
+
+fn clamp_text_cursor(cursor: &mut usize, value: &str) {
+    *cursor = (*cursor).min(value.chars().count());
 }
 
 fn command_id_matches_query(id: &str, query: &str) -> bool {
@@ -1546,6 +1886,20 @@ mod tests {
 
         adjust_setting_value(&mut settings, 3, false);
         assert_eq!(settings.input_record_limit, DEFAULT_INPUT_RECORD_LIMIT);
+    }
+
+    #[test]
+    fn params_spec_parses_names_and_labels() {
+        let params = parse_params_spec("path:路径, pattern, token:Token").unwrap();
+
+        assert_eq!(params[0].name, "path");
+        assert_eq!(params[0].label.as_deref(), Some("路径"));
+        assert_eq!(params[1].name, "pattern");
+        assert!(params[1].label.is_none());
+        assert_eq!(params[2].name, "token");
+        assert_eq!(params[2].label.as_deref(), Some("Token"));
+
+        assert_eq!(params_spec(&params), "path:路径, pattern, token:Token");
     }
 
     fn test_config() -> Config {

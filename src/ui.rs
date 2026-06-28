@@ -73,6 +73,9 @@ pub fn draw(f: &mut Frame, app: &App) {
     if app.show_settings {
         draw_settings_popup(f, app, f.area());
     }
+    if app.config_editor.is_some() {
+        draw_config_editor_popup(f, app, f.area());
+    }
     if app.file_picker.is_some() {
         draw_file_picker_popup(f, app, f.area());
     }
@@ -200,6 +203,10 @@ fn draw_help_popup(f: &mut Frame, area: Rect, texts: &Texts) {
             Span::raw(texts.help_settings),
         ]),
         Line::from(vec![
+            Span::styled("F3", key_style()),
+            Span::raw(texts.help_config_editor),
+        ]),
+        Line::from(vec![
             Span::styled("f", key_style()),
             Span::raw(texts.help_file_picker),
         ]),
@@ -305,6 +312,93 @@ fn bool_label(value: bool, texts: &Texts) -> &'static str {
     } else {
         texts.settings_off
     }
+}
+
+fn draw_config_editor_popup(f: &mut Frame, app: &App, area: Rect) {
+    let Some(editor) = &app.config_editor else {
+        return;
+    };
+    let texts = app.texts();
+    let popup = centered_rect(area, 86, 15);
+    let rows = vec![
+        config_editor_item(
+            texts.config_editor_command_id,
+            editor_value(editor, 0),
+            editor.selected == 0 && editor.editing,
+        ),
+        config_editor_item(
+            texts.config_editor_category_id,
+            editor_value(editor, 1),
+            editor.selected == 1 && editor.editing,
+        ),
+        config_editor_item(
+            texts.config_editor_category_alias,
+            editor_value(editor, 2),
+            editor.selected == 2 && editor.editing,
+        ),
+        config_editor_item(
+            texts.config_editor_command_title,
+            editor_value(editor, 3),
+            editor.selected == 3 && editor.editing,
+        ),
+        config_editor_item(
+            texts.config_editor_template,
+            editor_value(editor, 4),
+            editor.selected == 4 && editor.editing,
+        ),
+        config_editor_item(
+            texts.config_editor_params,
+            editor_value(editor, 5),
+            editor.selected == 5 && editor.editing,
+        ),
+    ];
+    let mut state = ListState::default();
+    state.select(Some(editor.selected));
+
+    f.render_widget(Clear, popup);
+    f.render_stateful_widget(
+        List::new(rows)
+            .highlight_symbol("› ")
+            .highlight_style(Style::default().bg(Color::DarkGray).fg(Color::White))
+            .block(
+                Block::default()
+                    .title(Span::styled(
+                        texts.config_editor_title,
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::BOLD),
+                    ))
+                    .title_bottom(Span::styled(
+                        texts.config_editor_help,
+                        Style::default().fg(Color::DarkGray),
+                    ))
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Yellow)),
+            ),
+        popup,
+        &mut state,
+    );
+}
+
+fn editor_value(editor: &crate::app::ConfigEditor, idx: usize) -> String {
+    if editor.selected == idx && editor.editing {
+        edit_display(&editor.edit_buffer, editor.edit_cursor)
+    } else {
+        truncate(editor.draft.field(idx), 56)
+    }
+}
+
+fn config_editor_item(label: &str, value: String, editing: bool) -> ListItem<'static> {
+    let value_style = if editing {
+        Style::default().fg(Color::Black).bg(Color::LightYellow)
+    } else {
+        Style::default().fg(Color::LightGreen)
+    };
+    ListItem::new(Line::from(vec![
+        Span::styled(label.to_string(), Style::default().fg(Color::White)),
+        Span::raw("  "),
+        Span::styled(value, value_style),
+    ]))
 }
 
 fn draw_file_picker_popup(f: &mut Frame, app: &App, area: Rect) {

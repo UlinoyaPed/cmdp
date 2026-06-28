@@ -38,6 +38,18 @@ options = [
 ]
 "#;
 
+const EDITOR_CONFIG_FILE: &str = "zz_cmdp_editor.toml";
+
+#[derive(Debug, Clone)]
+pub struct CommandEdit {
+    pub command_id: String,
+    pub category_id: String,
+    pub category_alias: Option<String>,
+    pub title: Option<String>,
+    pub template: String,
+    pub params: Vec<Param>,
+}
+
 pub fn global_dir() -> Result<PathBuf> {
     let base = BaseDirs::new().context("cannot determine home directory")?;
     Ok(base.home_dir().join(".config/cmdp"))
@@ -78,6 +90,10 @@ pub fn global_paths() -> Result<Vec<PathBuf>> {
 
 pub fn settings_path() -> Result<PathBuf> {
     Ok(global_dir()?.join("settings.toml"))
+}
+
+pub fn editor_config_path() -> Result<PathBuf> {
+    Ok(global_dir()?.join(EDITOR_CONFIG_FILE))
 }
 
 pub fn find_local(start: &Path) -> Option<PathBuf> {
@@ -148,6 +164,14 @@ pub fn save_settings(settings: &Settings) -> Result<()> {
     save_settings_to_path(&dir.join("settings.toml"), settings)
 }
 
+pub fn save_command_edit(edit: &CommandEdit) -> Result<()> {
+    let path = editor_config_path()?;
+    if let Some(dir) = path.parent() {
+        ensure_dir(dir)?;
+    }
+    save_command_edit_to_path(&path, edit)
+}
+
 fn load_settings_from_path(path: &Path) -> Result<Settings> {
     if !path.exists() {
         return Ok(Settings::default());
@@ -163,6 +187,58 @@ fn load_settings_from_path(path: &Path) -> Result<Settings> {
 
 fn save_settings_to_path(path: &Path, settings: &Settings) -> Result<()> {
     let text = settings_to_toml(settings);
+    fs::write(path, text).with_context(|| format!("write {}", path.display()))
+}
+
+fn save_command_edit_to_path(path: &Path, edit: &CommandEdit) -> Result<()> {
+    let mut raw = if path.exists() {
+        let text = fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
+        if text.trim().is_empty() {
+            RawConfig::default()
+        } else {
+            toml::from_str(&text).with_context(|| format!("parse {}", path.display()))?
+        }
+    } else {
+        RawConfig::default()
+    };
+    if raw.version.unwrap_or(1) != 1 {
+        return Err(CmdpError::Config(format!("unsupported version in {}", path.display())).into());
+    }
+    raw.version = Some(1);
+
+    raw.categories
+        .entry(edit.category_id.clone())
+        .and_modify(|category| {
+            if edit.category_alias.is_some() {
+                category.alias = edit.category_alias.clone();
+            }
+        })
+        .or_insert_with(|| Category {
+            alias: edit.category_alias.clone(),
+            source: Source::Global,
+        });
+    raw.commands.insert(
+        edit.command_id.clone(),
+        Command {
+            category: edit.category_id.clone(),
+            title: edit.title.clone(),
+            description: None,
+            danger: false,
+            template: edit.template.clone(),
+            params: edit.params.clone(),
+            options: Vec::new(),
+            source: Source::Global,
+        },
+    );
+
+    let cfg = Config {
+        categories: raw.categories.clone(),
+        commands: raw.commands.clone(),
+        ..Config::default()
+    };
+    validate(&cfg)?;
+
+    let text = toml::to_string_pretty(&raw).context("serialize edited command config")?;
     fs::write(path, text).with_context(|| format!("write {}", path.display()))
 }
 
@@ -272,12 +348,12 @@ fn validate_id(kind: &str, id: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        ensure_global_files_in_dir, load_settings_from_path, merge_file, save_settings_to_path,
-        toml_files_in_dir,
+        CommandEdit, ensure_global_files_in_dir, load_settings_from_path, merge_file,
+        save_command_edit_to_path, save_settings_to_path, toml_files_in_dir,
     };
     use crate::{
         i18n::Language,
-        template::{Config, Settings, Source},
+        template::{Config, Param, Settings, Source},
     };
     use std::{
         fs,
@@ -481,6 +557,44 @@ template = "echo ok"
         assert!(dir.join("settings.toml").exists());
         assert!(!dir.join("commands.toml").exists());
         assert!(custom.exists());
+
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn command_edits_are_saved_to_editor_config_file() {
+        let dir = temp_config_dir();
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("zz_cmdp_editor.toml");
+
+        save_command_edit_to_path(
+            &path,
+            &CommandEdit {
+                command_id: "say_hello".to_string(),
+                category_id: "general".to_string(),
+                category_alias: Some("General".to_string()),
+                title: Some("Say Hello".to_string()),
+                template: "echo <<{{name}}>>".to_string(),
+                params: vec![Param {
+                    name: "name".to_string(),
+                    label: Some("Name".to_string()),
+                    default: None,
+                    placeholder: None,
+                    help: None,
+                    secret: false,
+                    choices: None,
+                }],
+            },
+        )
+        .unwrap();
+
+        let mut merged = Config::default();
+        merge_file(&mut merged, &path, Source::Global).unwrap();
+
+        assert!(merged.categories.contains_key("general"));
+        let command = merged.commands.get("say_hello").unwrap();
+        assert_eq!(command.title.as_deref(), Some("Say Hello"));
+        assert_eq!(command.params[0].name, "name");
 
         fs::remove_dir_all(dir).unwrap();
     }

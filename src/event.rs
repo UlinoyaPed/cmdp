@@ -36,6 +36,45 @@ pub fn handle_key(app: &mut App, key: KeyEvent) {
         return;
     }
 
+    if app.config_editor.is_some() {
+        if app
+            .config_editor
+            .as_ref()
+            .is_some_and(|editor| editor.editing)
+        {
+            match key.code {
+                KeyCode::Esc => app.cancel_config_editor_edit(),
+                KeyCode::Enter => app.commit_config_editor_edit(),
+                KeyCode::Backspace => app.backspace_config_editor_char(),
+                KeyCode::Delete => app.delete_config_editor_char(),
+                KeyCode::Left => app.move_config_editor_cursor(false),
+                KeyCode::Right => app.move_config_editor_cursor(true),
+                KeyCode::Home => app.move_config_editor_cursor_to_start(),
+                KeyCode::End => app.move_config_editor_cursor_to_end(),
+                KeyCode::Char(c) => app.insert_config_editor_char(c),
+                _ => {}
+            }
+        } else {
+            match (key.code, key.modifiers) {
+                (KeyCode::Esc, _) | (KeyCode::F(3), _) => app.close_config_editor(),
+                (KeyCode::Char('n'), KeyModifiers::CONTROL) => {
+                    app.reset_config_editor_to_new_command();
+                }
+                (KeyCode::Char('s'), KeyModifiers::CONTROL) => app.save_config_editor(),
+                (KeyCode::Up, _) | (KeyCode::Char('k'), _) => app.move_config_editor(false),
+                (KeyCode::Down, _) | (KeyCode::Char('j'), _) => app.move_config_editor(true),
+                (KeyCode::Enter, _) | (KeyCode::Right, _) => app.begin_config_editor_edit(),
+                _ => {}
+            }
+        }
+        return;
+    }
+
+    if key.code == KeyCode::F(3) {
+        app.open_config_editor();
+        return;
+    }
+
     if app.file_picker.is_some() {
         match key.code {
             KeyCode::Esc | KeyCode::Char('f') => app.close_file_picker(),
@@ -102,7 +141,11 @@ pub fn handle_key(app: &mut App, key: KeyEvent) {
 }
 
 pub fn handle_mouse(app: &mut App, mouse: MouseEvent, screen: Rect) {
-    if app.show_help || app.show_settings || app.file_picker.is_some() {
+    if app.show_help
+        || app.show_settings
+        || app.config_editor.is_some()
+        || app.file_picker.is_some()
+    {
         return;
     }
 
