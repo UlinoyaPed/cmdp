@@ -49,7 +49,8 @@ fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut app::App
             match read()? {
                 Event::Key(key) => event::handle_key(app, key),
                 Event::Mouse(mouse) => event::handle_mouse(app, mouse, terminal.size()?.into()),
-                Event::Resize(_, _) | Event::FocusGained | Event::FocusLost | Event::Paste(_) => {}
+                Event::Paste(text) => event::handle_paste(app, &text),
+                Event::Resize(_, _) | Event::FocusGained | Event::FocusLost => {}
             }
         }
     }

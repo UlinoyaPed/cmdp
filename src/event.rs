@@ -37,21 +37,71 @@ pub fn handle_key(app: &mut App, key: KeyEvent) {
     }
 
     if app.config_editor.is_some() {
+        if app.config_template_property_is_open() {
+            if app
+                .config_editor
+                .as_ref()
+                .and_then(|editor| editor.template_property_editor.as_ref())
+                .is_some_and(|property_editor| property_editor.editing)
+            {
+                match (key.code, key.modifiers) {
+                    (KeyCode::Esc, _) => app.cancel_config_template_property_edit(),
+                    (KeyCode::Enter, modifiers)
+                        if modifiers.contains(KeyModifiers::CONTROL)
+                            || modifiers.contains(KeyModifiers::ALT) =>
+                    {
+                        app.insert_config_template_property_char('\n');
+                    }
+                    (KeyCode::Char('j'), KeyModifiers::CONTROL) => {
+                        app.insert_config_template_property_char('\n');
+                    }
+                    (KeyCode::Enter, _) => app.commit_config_template_property_edit(),
+                    (KeyCode::Backspace, _) => app.backspace_config_template_property_char(),
+                    (KeyCode::Delete, _) => app.delete_config_template_property_char(),
+                    (KeyCode::Left, _) => app.move_config_template_property_cursor(false),
+                    (KeyCode::Right, _) => app.move_config_template_property_cursor(true),
+                    (KeyCode::Home, _) => app.move_config_template_property_cursor_to_start(),
+                    (KeyCode::End, _) => app.move_config_template_property_cursor_to_end(),
+                    (KeyCode::Char(c), _) => app.insert_config_template_property_char(c),
+                    _ => {}
+                }
+            } else {
+                match key.code {
+                    KeyCode::Esc => app.close_config_template_property_editor(),
+                    KeyCode::Up | KeyCode::Char('k') => app.move_config_template_property(false),
+                    KeyCode::Down | KeyCode::Char('j') => app.move_config_template_property(true),
+                    KeyCode::Enter | KeyCode::Right => app.begin_config_template_property_edit(),
+                    KeyCode::Char(' ') => app.toggle_config_template_property(),
+                    _ => {}
+                }
+            }
+            return;
+        }
+
         if app
             .config_editor
             .as_ref()
             .is_some_and(|editor| editor.editing)
         {
-            match key.code {
-                KeyCode::Esc => app.cancel_config_editor_edit(),
-                KeyCode::Enter => app.commit_config_editor_edit(),
-                KeyCode::Backspace => app.backspace_config_editor_char(),
-                KeyCode::Delete => app.delete_config_editor_char(),
-                KeyCode::Left => app.move_config_editor_cursor(false),
-                KeyCode::Right => app.move_config_editor_cursor(true),
-                KeyCode::Home => app.move_config_editor_cursor_to_start(),
-                KeyCode::End => app.move_config_editor_cursor_to_end(),
-                KeyCode::Char(c) => app.insert_config_editor_char(c),
+            match (key.code, key.modifiers) {
+                (KeyCode::Esc, _) => app.cancel_config_editor_edit(),
+                (KeyCode::Enter, modifiers)
+                    if modifiers.contains(KeyModifiers::CONTROL)
+                        || modifiers.contains(KeyModifiers::ALT) =>
+                {
+                    app.insert_config_editor_char('\n');
+                }
+                (KeyCode::Char('j'), KeyModifiers::CONTROL) => {
+                    app.insert_config_editor_char('\n');
+                }
+                (KeyCode::Enter, _) => app.commit_config_editor_edit(),
+                (KeyCode::Backspace, _) => app.backspace_config_editor_char(),
+                (KeyCode::Delete, _) => app.delete_config_editor_char(),
+                (KeyCode::Left, _) => app.move_config_editor_cursor(false),
+                (KeyCode::Right, _) => app.move_config_editor_cursor(true),
+                (KeyCode::Home, _) => app.move_config_editor_cursor_to_start(),
+                (KeyCode::End, _) => app.move_config_editor_cursor_to_end(),
+                (KeyCode::Char(c), _) => app.insert_config_editor_char(c),
                 _ => {}
             }
         } else {
@@ -140,6 +190,32 @@ pub fn handle_key(app: &mut App, key: KeyEvent) {
     }
 }
 
+pub fn handle_paste(app: &mut App, text: &str) {
+    if app.config_template_property_is_open()
+        && app
+            .config_editor
+            .as_ref()
+            .and_then(|editor| editor.template_property_editor.as_ref())
+            .is_some_and(|property_editor| property_editor.editing)
+    {
+        app.insert_config_template_property_text(text);
+    } else if app
+        .config_editor
+        .as_ref()
+        .is_some_and(|editor| editor.editing)
+    {
+        app.insert_config_editor_text(text);
+    } else if app.editing {
+        for ch in text.chars() {
+            app.insert_edit_char(ch);
+        }
+    } else if app.search_editing {
+        for ch in text.chars().filter(|ch| *ch != '\n' && *ch != '\r') {
+            app.push_search_char(ch);
+        }
+    }
+}
+
 pub fn handle_mouse(app: &mut App, mouse: MouseEvent, screen: Rect) {
     if app.show_help {
         return;
@@ -191,6 +267,10 @@ fn handle_settings_mouse(app: &mut App, mouse: MouseEvent, screen: Rect) {
 }
 
 fn handle_config_editor_mouse(app: &mut App, mouse: MouseEvent, screen: Rect) {
+    if app.config_template_property_is_open() {
+        handle_config_template_property_mouse(app, mouse, screen);
+        return;
+    }
     let popup = ui::config_editor_popup_area(screen);
     match mouse.kind {
         MouseEventKind::Down(MouseButton::Left) => {
@@ -200,6 +280,20 @@ fn handle_config_editor_mouse(app: &mut App, mouse: MouseEvent, screen: Rect) {
         }
         MouseEventKind::ScrollUp => app.move_config_editor(false),
         MouseEventKind::ScrollDown => app.move_config_editor(true),
+        _ => {}
+    }
+}
+
+fn handle_config_template_property_mouse(app: &mut App, mouse: MouseEvent, screen: Rect) {
+    let popup = ui::config_template_property_popup_area(screen);
+    match mouse.kind {
+        MouseEventKind::Down(MouseButton::Left) => {
+            if let Some(idx) = item_index(popup, mouse.column, mouse.row) {
+                app.select_config_template_property(idx, true);
+            }
+        }
+        MouseEventKind::ScrollUp => app.move_config_template_property(false),
+        MouseEventKind::ScrollDown => app.move_config_template_property(true),
         _ => {}
     }
 }
@@ -265,7 +359,7 @@ mod tests {
         app::{FilePicker, FilePickerEntry},
         template::Config,
     };
-    use crossterm::event::KeyModifiers;
+    use crossterm::event::{KeyEventKind, KeyEventState, KeyModifiers};
     use std::path::PathBuf;
 
     #[test]
@@ -289,6 +383,85 @@ mod tests {
         let editor = app.config_editor.as_ref().unwrap();
         assert_eq!(editor.selected, 0);
         assert!(editor.editing);
+    }
+
+    #[test]
+    fn mouse_click_opens_config_template_property_editor() {
+        let mut app = App::new(Config::default());
+        app.open_config_editor();
+        let screen = Rect::new(0, 0, 100, 30);
+        let popup = ui::config_editor_popup_area(screen);
+
+        handle_mouse(
+            &mut app,
+            MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: popup.x + 2,
+                row: popup.y + 1 + 9,
+                modifiers: KeyModifiers::NONE,
+            },
+            screen,
+        );
+
+        let editor = app.config_editor.as_ref().unwrap();
+        assert_eq!(editor.selected, 9);
+        assert_eq!(
+            editor
+                .template_property_editor
+                .as_ref()
+                .map(|property_editor| property_editor.part_index),
+            Some(0)
+        );
+    }
+
+    #[test]
+    fn paste_inserts_multiline_text_in_config_editor_field() {
+        let mut app = App::new(Config::default());
+        app.open_config_editor();
+        app.select_config_editor_field(6, true);
+        {
+            let editor = app.config_editor.as_mut().unwrap();
+            editor.edit_buffer.clear();
+            editor.edit_cursor = 0;
+        }
+
+        handle_paste(&mut app, "echo one\necho two");
+        app.commit_config_editor_edit();
+
+        assert_eq!(
+            app.config_editor.as_ref().unwrap().draft.template,
+            "echo one\necho two"
+        );
+    }
+
+    #[test]
+    fn config_editor_ctrl_j_inserts_newline() {
+        let mut app = App::new(Config::default());
+        app.open_config_editor();
+        app.select_config_editor_field(6, true);
+        {
+            let editor = app.config_editor.as_mut().unwrap();
+            editor.edit_buffer.clear();
+            editor.edit_cursor = 0;
+        }
+        app.insert_config_editor_text("echo one");
+
+        handle_key(
+            &mut app,
+            KeyEvent {
+                code: KeyCode::Char('j'),
+                modifiers: KeyModifiers::CONTROL,
+                kind: KeyEventKind::Press,
+                state: KeyEventState::NONE,
+            },
+        );
+        app.insert_config_editor_text("echo two");
+        app.commit_config_editor_edit();
+
+        assert_eq!(
+            app.config_editor.as_ref().unwrap().draft.template,
+            "echo one\necho two"
+        );
     }
 
     #[test]

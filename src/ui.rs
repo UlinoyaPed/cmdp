@@ -1,5 +1,5 @@
 use crate::{
-    app::{App, Focus, FormItem},
+    app::{App, ConfigEditTarget, Focus, FormItem, TemplatePart, TemplatePartKind},
     i18n::Texts,
     template::Source,
 };
@@ -76,6 +76,9 @@ pub fn draw(f: &mut Frame, app: &App) {
     }
     if app.config_editor.is_some() {
         draw_config_editor_popup(f, app, f.area());
+    }
+    if app.config_template_property_is_open() {
+        draw_config_template_property_popup(f, app, f.area());
     }
     if app.file_picker.is_some() {
         draw_file_picker_popup(f, app, f.area());
@@ -321,7 +324,12 @@ fn draw_config_editor_popup(f: &mut Frame, app: &App, area: Rect) {
     };
     let texts = app.texts();
     let popup = config_editor_popup_area(area);
-    let rows = vec![
+    let title = format!(
+        "{}  {} ",
+        texts.config_editor_title,
+        config_editor_target(editor, texts)
+    );
+    let mut rows = vec![
         config_editor_item(
             texts.config_editor_command_id,
             editor_value(editor, 0),
@@ -368,6 +376,15 @@ fn draw_config_editor_popup(f: &mut Frame, app: &App, area: Rect) {
             editor.selected == 8 && editor.editing,
         ),
     ];
+    let aliases = app.config_editor_template_part_aliases();
+    for (idx, part) in app.config_editor_template_parts().iter().enumerate() {
+        rows.push(config_template_part_item(
+            texts,
+            part,
+            aliases.get(idx).map(String::as_str).unwrap_or_default(),
+            editor.selected == 9 + idx,
+        ));
+    }
     let mut state = ListState::default();
     state.select(Some(editor.selected));
 
@@ -379,7 +396,7 @@ fn draw_config_editor_popup(f: &mut Frame, app: &App, area: Rect) {
             .block(
                 Block::default()
                     .title(Span::styled(
-                        texts.config_editor_title,
+                        title,
                         Style::default()
                             .fg(Color::Yellow)
                             .add_modifier(Modifier::BOLD),
@@ -396,11 +413,41 @@ fn draw_config_editor_popup(f: &mut Frame, app: &App, area: Rect) {
     );
 }
 
+fn config_editor_target(editor: &crate::app::ConfigEditor, texts: &Texts) -> String {
+    match &editor.target {
+        ConfigEditTarget::GlobalEditor => texts.config_editor_target_global.to_string(),
+        ConfigEditTarget::LocalProject(path) => format!(
+            "{}{}",
+            texts.config_editor_target_local_prefix,
+            truncate(&path.display().to_string(), 42)
+        ),
+    }
+}
+
 fn editor_value(editor: &crate::app::ConfigEditor, idx: usize) -> String {
     if editor.selected == idx && editor.editing {
         edit_display(&editor.edit_buffer, editor.edit_cursor)
     } else {
-        truncate(editor.draft.field(idx), 56)
+        match idx {
+            0 => truncate(
+                &id_with_alias(&editor.draft.command_id, &editor.draft.title),
+                56,
+            ),
+            1 => truncate(
+                &id_with_alias(&editor.draft.category_id, &editor.draft.category_alias),
+                56,
+            ),
+            _ => truncate(&compact_newlines(editor.draft.field(idx)), 56),
+        }
+    }
+}
+
+fn id_with_alias(id: &str, alias: &str) -> String {
+    let alias = alias.trim();
+    if alias.is_empty() || alias == id {
+        id.to_string()
+    } else {
+        format!("{id}  {alias}")
     }
 }
 
@@ -415,6 +462,113 @@ fn config_editor_item(label: &str, value: String, editing: bool) -> ListItem<'st
         Span::raw("  "),
         Span::styled(value, value_style),
     ]))
+}
+
+fn config_template_part_item(
+    texts: &Texts,
+    part: &TemplatePart,
+    alias: &str,
+    selected: bool,
+) -> ListItem<'static> {
+    let value_style = if selected {
+        Style::default().fg(Color::Black).bg(Color::LightCyan)
+    } else {
+        Style::default().fg(Color::Cyan)
+    };
+    let fallback = part.params.join(", ");
+    let (kind, detail) = match &part.kind {
+        TemplatePartKind::Required => (texts.config_template_required_part, fallback),
+        TemplatePartKind::Optional { id } => {
+            let detail = if alias.is_empty() {
+                format!("{id}  {}", part.params.join(", "))
+            } else {
+                alias.to_string()
+            };
+            (texts.config_template_optional_part, detail)
+        }
+    };
+    let detail = if alias.is_empty() {
+        detail
+    } else {
+        alias.to_string()
+    };
+    ListItem::new(Line::from(vec![
+        Span::styled(kind.to_string(), Style::default().fg(Color::White)),
+        Span::raw("  "),
+        Span::styled(truncate(&compact_newlines(&part.token), 34), value_style),
+        Span::raw("  "),
+        Span::styled(detail, Style::default().fg(Color::DarkGray)),
+    ]))
+}
+
+fn draw_config_template_property_popup(f: &mut Frame, app: &App, area: Rect) {
+    let Some(editor) = &app.config_editor else {
+        return;
+    };
+    let Some(property_editor) = &editor.template_property_editor else {
+        return;
+    };
+    let texts = app.texts();
+    let popup = config_template_property_popup_area(area);
+    let fields = app.config_template_property_fields();
+    let title = format!(
+        "{} {} ",
+        texts.config_template_property_title,
+        app.config_template_property_part_label()
+            .map(|label| truncate(&label, 48))
+            .unwrap_or_default()
+    );
+    let rows = if fields.is_empty() {
+        vec![ListItem::new(Line::from(Span::styled(
+            texts.config_template_property_empty,
+            Style::default().fg(Color::DarkGray),
+        )))]
+    } else {
+        fields
+            .iter()
+            .enumerate()
+            .map(|(idx, field)| {
+                let value = if property_editor.selected == idx && property_editor.editing {
+                    edit_display(&property_editor.edit_buffer, property_editor.edit_cursor)
+                } else {
+                    truncate(&compact_newlines(&field.value), 46)
+                };
+                config_editor_item(
+                    &field.label,
+                    value,
+                    property_editor.selected == idx && property_editor.editing,
+                )
+            })
+            .collect()
+    };
+    let mut state = ListState::default();
+    state.select(Some(
+        property_editor.selected.min(rows.len().saturating_sub(1)),
+    ));
+
+    f.render_widget(Clear, popup);
+    f.render_stateful_widget(
+        List::new(rows)
+            .highlight_symbol("› ")
+            .highlight_style(Style::default().bg(Color::DarkGray).fg(Color::White))
+            .block(
+                Block::default()
+                    .title(Span::styled(
+                        title,
+                        Style::default()
+                            .fg(Color::LightCyan)
+                            .add_modifier(Modifier::BOLD),
+                    ))
+                    .title_bottom(Span::styled(
+                        texts.config_template_property_help,
+                        Style::default().fg(Color::DarkGray),
+                    ))
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::LightCyan)),
+            ),
+        popup,
+        &mut state,
+    );
 }
 
 fn draw_file_picker_popup(f: &mut Frame, app: &App, area: Rect) {
@@ -816,7 +970,25 @@ fn edit_display(value: &str, cursor: usize) -> String {
     if cursor == value.chars().count() {
         display.push('▌');
     }
-    display
+    compact_newlines(&display)
+}
+
+fn compact_newlines(value: &str) -> String {
+    let mut out = String::new();
+    let mut chars = value.chars().peekable();
+    while let Some(ch) = chars.next() {
+        match ch {
+            '\r' => {
+                if chars.peek() == Some(&'\n') {
+                    chars.next();
+                }
+                out.push_str(" ↵ ");
+            }
+            '\n' => out.push_str(" ↵ "),
+            _ => out.push(ch),
+        }
+    }
+    out
 }
 
 fn source_summary(sources: &[String], texts: &Texts) -> &'static str {
@@ -871,6 +1043,10 @@ pub fn config_editor_popup_area(area: Rect) -> Rect {
     centered_rect(area, 92, 18)
 }
 
+pub fn config_template_property_popup_area(area: Rect) -> Rect {
+    centered_rect(area, 78, 16)
+}
+
 pub fn file_picker_popup_area(area: Rect) -> Rect {
     centered_rect(area, 78, 22)
 }
@@ -906,6 +1082,14 @@ mod tests {
     fn edit_display_places_cursor_by_character_index() {
         assert_eq!(edit_display("a中c", 2), "a中▌c");
         assert_eq!(edit_display("a中c", 10), "a中c▌");
+    }
+
+    #[test]
+    fn edit_display_compacts_newlines_for_list_rows() {
+        assert_eq!(
+            edit_display("echo one\necho two", 8),
+            "echo one▌ ↵ echo two"
+        );
     }
 
     #[test]

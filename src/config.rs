@@ -175,6 +175,13 @@ pub fn save_command_edit(edit: &CommandEdit) -> Result<()> {
     save_command_edit_to_path(&path, edit)
 }
 
+pub fn save_command_edit_to_local_path(path: &Path, edit: &CommandEdit) -> Result<()> {
+    if let Some(dir) = path.parent() {
+        ensure_dir(dir)?;
+    }
+    save_command_edit_to_path(path, edit)
+}
+
 fn load_settings_from_path(path: &Path) -> Result<Settings> {
     if !path.exists() {
         return Ok(Settings::default());

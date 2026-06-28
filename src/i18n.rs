@@ -84,6 +84,13 @@ pub struct Texts {
     pub config_editor_options: &'static str,
     pub config_editor_save_failed_prefix: &'static str,
     pub config_editor_invalid_params_prefix: &'static str,
+    pub config_editor_target_global: &'static str,
+    pub config_editor_target_local_prefix: &'static str,
+    pub config_template_property_title: &'static str,
+    pub config_template_property_empty: &'static str,
+    pub config_template_property_help: &'static str,
+    pub config_template_required_part: &'static str,
+    pub config_template_optional_part: &'static str,
 }
 
 pub const ZH_CN: Texts = Texts {
@@ -151,7 +158,7 @@ pub const ZH_CN: Texts = Texts {
     settings_off: "关",
     save_settings_failed_prefix: "保存设置失败：",
     config_editor_title: " 配置编辑 ",
-    config_editor_help: " ↑↓选择  Enter编辑  Ctrl+n新增  Ctrl+s保存  Esc/F3关闭 ",
+    config_editor_help: " ↑↓选择  Enter编辑  Ctrl+j换行  Ctrl+n新增  Ctrl+s保存  Esc/F3关闭 ",
     config_editor_command_id: "命令 ID",
     config_editor_category_id: "分类 ID",
     config_editor_category_alias: "分类别名",
@@ -163,6 +170,13 @@ pub const ZH_CN: Texts = Texts {
     config_editor_options: "选项",
     config_editor_save_failed_prefix: "保存配置失败：",
     config_editor_invalid_params_prefix: "参数格式错误：",
+    config_editor_target_global: "保存到全局编辑文件",
+    config_editor_target_local_prefix: "保存到 ",
+    config_template_property_title: " 片段属性 ",
+    config_template_property_empty: "没有可编辑属性",
+    config_template_property_help: " ↑↓选择  Enter编辑  Space切换布尔项  Esc关闭 ",
+    config_template_required_part: "必填片段",
+    config_template_optional_part: "可选片段",
 };
 
 pub const EN: Texts = Texts {
@@ -230,7 +244,7 @@ pub const EN: Texts = Texts {
     settings_off: "off",
     save_settings_failed_prefix: "Failed to save settings: ",
     config_editor_title: " Config editor ",
-    config_editor_help: " ↑↓ select  Enter edit  Ctrl+n new  Ctrl+s save  Esc/F3 close ",
+    config_editor_help: " ↑↓ select  Enter edit  Ctrl+j newline  Ctrl+n new  Ctrl+s save  Esc/F3 close ",
     config_editor_command_id: "Command ID",
     config_editor_category_id: "Category ID",
     config_editor_category_alias: "Category alias",
@@ -242,6 +256,13 @@ pub const EN: Texts = Texts {
     config_editor_options: "Options",
     config_editor_save_failed_prefix: "Failed to save config: ",
     config_editor_invalid_params_prefix: "Invalid parameters: ",
+    config_editor_target_global: "save to global editor file",
+    config_editor_target_local_prefix: "save to ",
+    config_template_property_title: " Template properties ",
+    config_template_property_empty: "No editable properties",
+    config_template_property_help: " ↑↓ select  Enter edit  Space toggle booleans  Esc close ",
+    config_template_required_part: "Required",
+    config_template_optional_part: "Optional",
 };
 
 impl Language {

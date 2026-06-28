@@ -60,10 +60,69 @@ pub struct FilePickerEntry {
 #[derive(Debug, Clone)]
 pub struct ConfigEditor {
     pub draft: ConfigDraft,
+    pub target: ConfigEditTarget,
     pub selected: usize,
     pub editing: bool,
     pub edit_buffer: String,
     pub edit_cursor: usize,
+    pub template_property_editor: Option<TemplatePropertyEditor>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ConfigEditTarget {
+    GlobalEditor,
+    LocalProject(PathBuf),
+}
+
+#[derive(Debug, Clone)]
+pub struct TemplatePropertyEditor {
+    pub part_index: usize,
+    pub selected: usize,
+    pub editing: bool,
+    pub edit_buffer: String,
+    pub edit_cursor: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TemplatePart {
+    pub kind: TemplatePartKind,
+    pub token: String,
+    pub params: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TemplatePartKind {
+    Required,
+    Optional { id: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TemplatePropertyField {
+    pub label: String,
+    pub value: String,
+    pub kind: TemplatePropertyFieldKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TemplatePropertyFieldKind {
+    OptionLabel(String),
+    OptionDefaultEnabled(String),
+    ParamLabel(String),
+    ParamDefault(String),
+    ParamPlaceholder(String),
+    ParamHelp(String),
+    ParamSecret(String),
+    ParamChoices(String),
+}
+
+impl TemplatePropertyFieldKind {
+    fn is_bool(&self) -> bool {
+        matches!(
+            self,
+            TemplatePropertyFieldKind::OptionDefaultEnabled(_)
+                | TemplatePropertyFieldKind::ParamSecret(_)
+        )
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -87,6 +146,11 @@ struct ParamsSpec {
 #[derive(Deserialize)]
 struct OptionsSpec {
     options: Vec<OptionDef>,
+}
+
+#[derive(Deserialize)]
+struct ChoicesSpec {
+    choices: Vec<String>,
 }
 
 pub struct App {
@@ -471,12 +535,16 @@ impl App {
         self.file_picker = None;
         self.editing = false;
         self.search_editing = false;
+        let draft = self.current_config_draft();
+        let target = self.current_config_edit_target();
         self.config_editor = Some(ConfigEditor {
-            draft: self.current_config_draft(),
+            draft,
+            target,
             selected: 0,
             editing: false,
             edit_buffer: String::new(),
             edit_cursor: 0,
+            template_property_editor: None,
         });
     }
 
@@ -484,30 +552,58 @@ impl App {
         self.config_editor = None;
     }
 
+    pub fn config_editor_item_count(&self) -> usize {
+        self.config_editor
+            .as_ref()
+            .map(config_editor_item_count)
+            .unwrap_or(0)
+    }
+
+    pub fn config_editor_template_parts(&self) -> Vec<TemplatePart> {
+        self.config_editor
+            .as_ref()
+            .and_then(|editor| template_parts(&editor.draft.template).ok())
+            .unwrap_or_default()
+    }
+
+    pub fn config_editor_template_part_aliases(&self) -> Vec<String> {
+        let Some(editor) = self.config_editor.as_ref() else {
+            return Vec::new();
+        };
+        let Ok(parts) = template_parts(&editor.draft.template) else {
+            return Vec::new();
+        };
+        parts
+            .iter()
+            .map(|part| template_part_alias(&editor.draft, part).unwrap_or_default())
+            .collect()
+    }
+
     pub fn reset_config_editor_to_new_command(&mut self) {
         let draft = self.new_config_draft();
         if let Some(editor) = self.config_editor.as_mut() {
             editor.draft = draft;
+            editor.target = ConfigEditTarget::GlobalEditor;
             editor.selected = 0;
             editor.editing = false;
             editor.edit_buffer.clear();
             editor.edit_cursor = 0;
+            editor.template_property_editor = None;
         }
     }
 
     pub fn move_config_editor(&mut self, down: bool) {
+        let Some(item_count) = self.config_editor.as_ref().map(config_editor_item_count) else {
+            return;
+        };
         let Some(editor) = self.config_editor.as_mut() else {
             return;
         };
-        editor.selected = step(
-            editor.selected,
-            CONFIG_EDITOR_FIELD_COUNT,
-            if down { 1 } else { -1 },
-        );
+        editor.selected = step(editor.selected, item_count, if down { 1 } else { -1 });
     }
 
     pub fn select_config_editor_field(&mut self, idx: usize, activate: bool) {
-        if idx >= CONFIG_EDITOR_FIELD_COUNT {
+        if idx >= self.config_editor_item_count() {
             return;
         }
         if self
@@ -526,6 +622,20 @@ impl App {
     }
 
     pub fn begin_config_editor_edit(&mut self) {
+        if self
+            .config_editor
+            .as_ref()
+            .is_some_and(|editor| editor.selected >= CONFIG_EDITOR_FIELD_COUNT)
+        {
+            let part_index = self
+                .config_editor
+                .as_ref()
+                .map(|editor| editor.selected - CONFIG_EDITOR_FIELD_COUNT)
+                .unwrap_or_default();
+            self.open_config_template_property_editor(part_index);
+            return;
+        }
+
         let Some(editor) = self.config_editor.as_mut() else {
             return;
         };
@@ -543,6 +653,7 @@ impl App {
             .set_field(editor.selected, editor.edit_buffer.clone());
         editor.editing = false;
         editor.edit_cursor = 0;
+        clamp_config_editor_selection(editor);
     }
 
     pub fn cancel_config_editor_edit(&mut self) {
@@ -561,6 +672,12 @@ impl App {
         let idx = byte_index(&editor.edit_buffer, editor.edit_cursor);
         editor.edit_buffer.insert(idx, c);
         editor.edit_cursor += 1;
+    }
+
+    pub fn insert_config_editor_text(&mut self, text: &str) {
+        for ch in text.chars() {
+            self.insert_config_editor_char(ch);
+        }
     }
 
     pub fn backspace_config_editor_char(&mut self) {
@@ -615,7 +732,332 @@ impl App {
         }
     }
 
+    pub fn config_template_property_is_open(&self) -> bool {
+        self.config_editor
+            .as_ref()
+            .is_some_and(|editor| editor.template_property_editor.is_some())
+    }
+
+    pub fn config_template_property_fields(&self) -> Vec<TemplatePropertyField> {
+        let Some(editor) = self.config_editor.as_ref() else {
+            return Vec::new();
+        };
+        let Some(property_editor) = editor.template_property_editor.as_ref() else {
+            return Vec::new();
+        };
+        let Ok(parts) = template_parts(&editor.draft.template) else {
+            return Vec::new();
+        };
+        let Some(part) = parts.get(property_editor.part_index) else {
+            return Vec::new();
+        };
+        template_property_fields(&editor.draft, part).unwrap_or_default()
+    }
+
+    pub fn config_template_property_part_label(&self) -> Option<String> {
+        let editor = self.config_editor.as_ref()?;
+        let property_editor = editor.template_property_editor.as_ref()?;
+        let parts = template_parts(&editor.draft.template).ok()?;
+        parts
+            .get(property_editor.part_index)
+            .map(template_part_display)
+    }
+
+    pub fn open_config_template_property_editor(&mut self, part_index: usize) {
+        let Some(editor) = self.config_editor.as_mut() else {
+            return;
+        };
+        let Ok(parts) = template_parts(&editor.draft.template) else {
+            return;
+        };
+        if part_index >= parts.len() {
+            return;
+        }
+        editor.editing = false;
+        editor.edit_buffer.clear();
+        editor.edit_cursor = 0;
+        editor.template_property_editor = Some(TemplatePropertyEditor {
+            part_index,
+            selected: 0,
+            editing: false,
+            edit_buffer: String::new(),
+            edit_cursor: 0,
+        });
+    }
+
+    pub fn close_config_template_property_editor(&mut self) {
+        if let Some(editor) = self.config_editor.as_mut() {
+            editor.template_property_editor = None;
+        }
+    }
+
+    pub fn move_config_template_property(&mut self, down: bool) {
+        let field_count = self.config_template_property_fields().len();
+        let Some(property_editor) = self
+            .config_editor
+            .as_mut()
+            .and_then(|editor| editor.template_property_editor.as_mut())
+        else {
+            return;
+        };
+        property_editor.selected = step(
+            property_editor.selected,
+            field_count,
+            if down { 1 } else { -1 },
+        );
+    }
+
+    pub fn select_config_template_property(&mut self, idx: usize, activate: bool) {
+        if idx >= self.config_template_property_fields().len() {
+            return;
+        }
+        if self
+            .config_editor
+            .as_ref()
+            .and_then(|editor| editor.template_property_editor.as_ref())
+            .is_some_and(|property_editor| property_editor.editing)
+        {
+            self.commit_config_template_property_edit();
+            if self
+                .config_editor
+                .as_ref()
+                .and_then(|editor| editor.template_property_editor.as_ref())
+                .is_some_and(|property_editor| property_editor.editing)
+            {
+                return;
+            }
+        }
+        let Some(property_editor) = self
+            .config_editor
+            .as_mut()
+            .and_then(|editor| editor.template_property_editor.as_mut())
+        else {
+            return;
+        };
+        property_editor.selected = idx;
+        if activate {
+            if self
+                .config_template_property_fields()
+                .get(idx)
+                .is_some_and(|field| field.kind.is_bool())
+            {
+                self.toggle_config_template_property();
+            } else {
+                self.begin_config_template_property_edit();
+            }
+        }
+    }
+
+    pub fn begin_config_template_property_edit(&mut self) {
+        let fields = self.config_template_property_fields();
+        let Some(property_editor) = self
+            .config_editor
+            .as_mut()
+            .and_then(|editor| editor.template_property_editor.as_mut())
+        else {
+            return;
+        };
+        let Some(field) = fields.get(property_editor.selected) else {
+            return;
+        };
+        property_editor.editing = true;
+        property_editor.edit_buffer = field.value.clone();
+        property_editor.edit_cursor = property_editor.edit_buffer.chars().count();
+    }
+
+    pub fn commit_config_template_property_edit(&mut self) {
+        let Some((kind, value)) = self.active_template_property_edit() else {
+            return;
+        };
+        if let Some(editor) = self.config_editor.as_mut() {
+            match set_template_property(&mut editor.draft, &kind, &value) {
+                Ok(()) => {
+                    if let Some(property_editor) = editor.template_property_editor.as_mut() {
+                        property_editor.editing = false;
+                        property_editor.edit_cursor = 0;
+                    }
+                    self.error = None;
+                }
+                Err(error) => {
+                    self.error = Some(format!(
+                        "{}{error}",
+                        self.texts().config_editor_invalid_params_prefix
+                    ));
+                }
+            }
+        }
+    }
+
+    pub fn cancel_config_template_property_edit(&mut self) {
+        if let Some(property_editor) = self
+            .config_editor
+            .as_mut()
+            .and_then(|editor| editor.template_property_editor.as_mut())
+        {
+            property_editor.editing = false;
+            property_editor.edit_cursor = 0;
+        }
+    }
+
+    pub fn toggle_config_template_property(&mut self) {
+        let Some(field) = self
+            .config_template_property_fields()
+            .get(
+                self.config_editor
+                    .as_ref()
+                    .and_then(|editor| editor.template_property_editor.as_ref())
+                    .map(|property_editor| property_editor.selected)
+                    .unwrap_or_default(),
+            )
+            .cloned()
+        else {
+            return;
+        };
+        if !field.kind.is_bool() {
+            return;
+        }
+        let value = if parse_bool(&field.value).unwrap_or(false) {
+            "false"
+        } else {
+            "true"
+        };
+        if let Some(editor) = self.config_editor.as_mut()
+            && let Err(error) = set_template_property(&mut editor.draft, &field.kind, value)
+        {
+            self.error = Some(format!(
+                "{}{error}",
+                self.texts().config_editor_invalid_params_prefix
+            ));
+        } else {
+            self.error = None;
+        }
+    }
+
+    pub fn insert_config_template_property_char(&mut self, c: char) {
+        let Some(property_editor) = self
+            .config_editor
+            .as_mut()
+            .and_then(|editor| editor.template_property_editor.as_mut())
+        else {
+            return;
+        };
+        clamp_text_cursor(
+            &mut property_editor.edit_cursor,
+            &property_editor.edit_buffer,
+        );
+        let idx = byte_index(&property_editor.edit_buffer, property_editor.edit_cursor);
+        property_editor.edit_buffer.insert(idx, c);
+        property_editor.edit_cursor += 1;
+    }
+
+    pub fn insert_config_template_property_text(&mut self, text: &str) {
+        for ch in text.chars() {
+            self.insert_config_template_property_char(ch);
+        }
+    }
+
+    pub fn backspace_config_template_property_char(&mut self) {
+        let Some(property_editor) = self
+            .config_editor
+            .as_mut()
+            .and_then(|editor| editor.template_property_editor.as_mut())
+        else {
+            return;
+        };
+        clamp_text_cursor(
+            &mut property_editor.edit_cursor,
+            &property_editor.edit_buffer,
+        );
+        if property_editor.edit_cursor == 0 {
+            return;
+        }
+        let start = byte_index(
+            &property_editor.edit_buffer,
+            property_editor.edit_cursor - 1,
+        );
+        let end = byte_index(&property_editor.edit_buffer, property_editor.edit_cursor);
+        property_editor.edit_buffer.replace_range(start..end, "");
+        property_editor.edit_cursor -= 1;
+    }
+
+    pub fn delete_config_template_property_char(&mut self) {
+        let Some(property_editor) = self
+            .config_editor
+            .as_mut()
+            .and_then(|editor| editor.template_property_editor.as_mut())
+        else {
+            return;
+        };
+        clamp_text_cursor(
+            &mut property_editor.edit_cursor,
+            &property_editor.edit_buffer,
+        );
+        let len = property_editor.edit_buffer.chars().count();
+        if property_editor.edit_cursor >= len {
+            return;
+        }
+        let start = byte_index(&property_editor.edit_buffer, property_editor.edit_cursor);
+        let end = byte_index(
+            &property_editor.edit_buffer,
+            property_editor.edit_cursor + 1,
+        );
+        property_editor.edit_buffer.replace_range(start..end, "");
+    }
+
+    pub fn move_config_template_property_cursor(&mut self, right: bool) {
+        let Some(property_editor) = self
+            .config_editor
+            .as_mut()
+            .and_then(|editor| editor.template_property_editor.as_mut())
+        else {
+            return;
+        };
+        let len = property_editor.edit_buffer.chars().count();
+        property_editor.edit_cursor = if right {
+            (property_editor.edit_cursor + 1).min(len)
+        } else {
+            property_editor.edit_cursor.saturating_sub(1)
+        };
+    }
+
+    pub fn move_config_template_property_cursor_to_start(&mut self) {
+        if let Some(property_editor) = self
+            .config_editor
+            .as_mut()
+            .and_then(|editor| editor.template_property_editor.as_mut())
+        {
+            property_editor.edit_cursor = 0;
+        }
+    }
+
+    pub fn move_config_template_property_cursor_to_end(&mut self) {
+        if let Some(property_editor) = self
+            .config_editor
+            .as_mut()
+            .and_then(|editor| editor.template_property_editor.as_mut())
+        {
+            property_editor.edit_cursor = property_editor.edit_buffer.chars().count();
+        }
+    }
+
     pub fn save_config_editor(&mut self) {
+        if self
+            .config_editor
+            .as_ref()
+            .and_then(|editor| editor.template_property_editor.as_ref())
+            .is_some_and(|property_editor| property_editor.editing)
+        {
+            self.commit_config_template_property_edit();
+            if self
+                .config_editor
+                .as_ref()
+                .and_then(|editor| editor.template_property_editor.as_ref())
+                .is_some_and(|property_editor| property_editor.editing)
+            {
+                return;
+            }
+        }
+
         if self
             .config_editor
             .as_ref()
@@ -637,8 +1079,16 @@ impl App {
                 return;
             }
         };
+        let target = editor.target.clone();
 
-        if let Err(error) = config::save_command_edit(&edit) {
+        let save_result = match target {
+            ConfigEditTarget::GlobalEditor => config::save_command_edit(&edit),
+            ConfigEditTarget::LocalProject(path) => {
+                config::save_command_edit_to_local_path(&path, &edit)
+            }
+        };
+
+        if let Err(error) = save_result {
             self.error = Some(format!(
                 "{}{error}",
                 self.texts().config_editor_save_failed_prefix
@@ -1252,6 +1702,27 @@ impl App {
         self.new_config_draft()
     }
 
+    fn current_config_edit_target(&self) -> ConfigEditTarget {
+        let source = self.current_command().map(|(_, command)| command.source);
+        let local_path = std::env::current_dir()
+            .ok()
+            .and_then(|cwd| config::find_local(&cwd));
+        config_edit_target(source, local_path)
+    }
+
+    fn active_template_property_edit(&self) -> Option<(TemplatePropertyFieldKind, String)> {
+        let editor = self.config_editor.as_ref()?;
+        let property_editor = editor.template_property_editor.as_ref()?;
+        if !property_editor.editing {
+            return None;
+        }
+        let field = self
+            .config_template_property_fields()
+            .get(property_editor.selected)?
+            .clone();
+        Some((field.kind, property_editor.edit_buffer.clone()))
+    }
+
     fn new_config_draft(&self) -> ConfigDraft {
         let category_id = self
             .current_category_id()
@@ -1581,6 +2052,322 @@ fn sorted_enabled(enabled: &HashSet<String>) -> Vec<String> {
     let mut enabled: Vec<_> = enabled.iter().cloned().collect();
     enabled.sort();
     enabled
+}
+
+fn config_editor_item_count(editor: &ConfigEditor) -> usize {
+    CONFIG_EDITOR_FIELD_COUNT
+        + template_parts(&editor.draft.template).map_or(0, |parts| parts.len())
+}
+
+fn clamp_config_editor_selection(editor: &mut ConfigEditor) {
+    let count = config_editor_item_count(editor);
+    if count == 0 {
+        editor.selected = 0;
+    } else if editor.selected >= count {
+        editor.selected = count - 1;
+    }
+}
+
+fn template_parts(template: &str) -> Result<Vec<TemplatePart>, String> {
+    parser::parse_template(template)?;
+
+    let mut parts = Vec::new();
+    let mut i = 0;
+    let mut optional_count = 0;
+    while i < template.len() {
+        let rest = &template[i..];
+        if rest.starts_with("<<") {
+            let end = rest.find(">>").ok_or("unclosed required segment")?;
+            let body = &rest[2..end];
+            let params = placeholder_names(body)?;
+            if !params.is_empty() {
+                parts.push(TemplatePart {
+                    kind: TemplatePartKind::Required,
+                    token: format!("<<{body}>>"),
+                    params,
+                });
+            }
+            i += end + 2;
+        } else if rest.starts_with("[[") {
+            let end = rest.find("]]").ok_or("unclosed optional segment")?;
+            let raw = &rest[2..end];
+            let (id, body) = if let Some((id, body)) = raw
+                .split_once(':')
+                .filter(|(id, body)| parser::is_identifier(id.trim()) && !body.starts_with("//"))
+            {
+                (id.trim().to_string(), body)
+            } else {
+                (format!("option_{}", optional_count + 1), raw)
+            };
+            optional_count += 1;
+            parts.push(TemplatePart {
+                kind: TemplatePartKind::Optional { id },
+                token: format!("[[{raw}]]"),
+                params: placeholder_names(body)?,
+            });
+            i += end + 2;
+        } else {
+            let next = [rest.find("<<"), rest.find("[[")]
+                .into_iter()
+                .flatten()
+                .min()
+                .unwrap_or(rest.len());
+            i += next.max(1);
+        }
+    }
+
+    Ok(parts)
+}
+
+fn placeholder_names(value: &str) -> Result<Vec<String>, String> {
+    let mut names = Vec::new();
+    let mut i = 0;
+    while i < value.len() {
+        let rest = &value[i..];
+        let Some(start) = rest.find("{{") else {
+            break;
+        };
+        let placeholder = &rest[start + 2..];
+        let end = placeholder.find("}}").ok_or("unclosed placeholder")?;
+        let name = placeholder[..end].trim();
+        if !parser::is_identifier(name) {
+            return Err(format!("invalid placeholder name '{name}'"));
+        }
+        if !names.iter().any(|existing| existing == name) {
+            names.push(name.to_string());
+        }
+        i += start + end + 4;
+    }
+    Ok(names)
+}
+
+fn template_property_fields(
+    draft: &ConfigDraft,
+    part: &TemplatePart,
+) -> Result<Vec<TemplatePropertyField>, String> {
+    let params = parse_params_spec(&draft.params)?;
+    let options = parse_options_spec(&draft.options)?;
+    let mut fields = Vec::new();
+
+    if let TemplatePartKind::Optional { id } = &part.kind {
+        let option = options.iter().find(|option| option.id == *id);
+        fields.push(TemplatePropertyField {
+            label: format!("{id}.label"),
+            value: option
+                .and_then(|option| option.label.clone())
+                .unwrap_or_default(),
+            kind: TemplatePropertyFieldKind::OptionLabel(id.clone()),
+        });
+        fields.push(TemplatePropertyField {
+            label: format!("{id}.default_enabled"),
+            value: option
+                .map(|option| option.default_enabled)
+                .unwrap_or_default()
+                .to_string(),
+            kind: TemplatePropertyFieldKind::OptionDefaultEnabled(id.clone()),
+        });
+    }
+
+    for name in &part.params {
+        let param = params.iter().find(|param| param.name == *name);
+        fields.push(TemplatePropertyField {
+            label: format!("{name}.label"),
+            value: param
+                .and_then(|param| param.label.clone())
+                .unwrap_or_default(),
+            kind: TemplatePropertyFieldKind::ParamLabel(name.clone()),
+        });
+        fields.push(TemplatePropertyField {
+            label: format!("{name}.default"),
+            value: param
+                .and_then(|param| param.default.clone())
+                .unwrap_or_default(),
+            kind: TemplatePropertyFieldKind::ParamDefault(name.clone()),
+        });
+        fields.push(TemplatePropertyField {
+            label: format!("{name}.placeholder"),
+            value: param
+                .and_then(|param| param.placeholder.clone())
+                .unwrap_or_default(),
+            kind: TemplatePropertyFieldKind::ParamPlaceholder(name.clone()),
+        });
+        fields.push(TemplatePropertyField {
+            label: format!("{name}.help"),
+            value: param
+                .and_then(|param| param.help.clone())
+                .unwrap_or_default(),
+            kind: TemplatePropertyFieldKind::ParamHelp(name.clone()),
+        });
+        fields.push(TemplatePropertyField {
+            label: format!("{name}.secret"),
+            value: param
+                .map(|param| param.secret)
+                .unwrap_or_default()
+                .to_string(),
+            kind: TemplatePropertyFieldKind::ParamSecret(name.clone()),
+        });
+        fields.push(TemplatePropertyField {
+            label: format!("{name}.choices"),
+            value: param
+                .and_then(|param| param.choices.clone())
+                .map(|choices| choices.join(", "))
+                .unwrap_or_default(),
+            kind: TemplatePropertyFieldKind::ParamChoices(name.clone()),
+        });
+    }
+
+    Ok(fields)
+}
+
+fn template_part_alias(draft: &ConfigDraft, part: &TemplatePart) -> Result<String, String> {
+    let params = parse_params_spec(&draft.params)?;
+    let options = parse_options_spec(&draft.options)?;
+    let mut labels = Vec::new();
+
+    if let TemplatePartKind::Optional { id } = &part.kind {
+        let option_label = options
+            .iter()
+            .find(|option| option.id == *id)
+            .and_then(|option| option.label.as_deref())
+            .filter(|label| !label.is_empty());
+        if let Some(label) = option_label {
+            labels.push(format!("{id}: {label}"));
+        } else {
+            labels.push(id.clone());
+        }
+    }
+
+    for name in &part.params {
+        let param_label = params
+            .iter()
+            .find(|param| param.name == *name)
+            .and_then(|param| param.label.as_deref())
+            .filter(|label| !label.is_empty());
+        if let Some(label) = param_label {
+            labels.push(format!("{name}: {label}"));
+        } else {
+            labels.push(name.clone());
+        }
+    }
+
+    Ok(labels.join("  "))
+}
+
+fn set_template_property(
+    draft: &mut ConfigDraft,
+    kind: &TemplatePropertyFieldKind,
+    value: &str,
+) -> Result<(), String> {
+    match kind {
+        TemplatePropertyFieldKind::OptionLabel(id) => {
+            let mut options = parse_options_spec(&draft.options)?;
+            let option = ensure_option(&mut options, id);
+            option.label = optional_string(value);
+            draft.options = options_spec(&options);
+        }
+        TemplatePropertyFieldKind::OptionDefaultEnabled(id) => {
+            let mut options = parse_options_spec(&draft.options)?;
+            let option = ensure_option(&mut options, id);
+            option.default_enabled = parse_bool(value)?;
+            draft.options = options_spec(&options);
+        }
+        TemplatePropertyFieldKind::ParamLabel(name) => {
+            update_param(draft, name, |param| param.label = optional_string(value))?;
+        }
+        TemplatePropertyFieldKind::ParamDefault(name) => {
+            update_param(draft, name, |param| param.default = optional_string(value))?;
+        }
+        TemplatePropertyFieldKind::ParamPlaceholder(name) => {
+            update_param(draft, name, |param| {
+                param.placeholder = optional_string(value)
+            })?;
+        }
+        TemplatePropertyFieldKind::ParamHelp(name) => {
+            update_param(draft, name, |param| param.help = optional_string(value))?;
+        }
+        TemplatePropertyFieldKind::ParamSecret(name) => {
+            let secret = parse_bool(value)?;
+            update_param(draft, name, |param| param.secret = secret)?;
+        }
+        TemplatePropertyFieldKind::ParamChoices(name) => {
+            let choices = parse_choices_value(value)?;
+            update_param(draft, name, |param| param.choices = choices)?;
+        }
+    }
+    Ok(())
+}
+
+fn update_param(
+    draft: &mut ConfigDraft,
+    name: &str,
+    update: impl FnOnce(&mut Param),
+) -> Result<(), String> {
+    let mut params = parse_params_spec(&draft.params)?;
+    update(ensure_param(&mut params, name));
+    draft.params = params_spec(&params);
+    Ok(())
+}
+
+fn ensure_param<'a>(params: &'a mut Vec<Param>, name: &str) -> &'a mut Param {
+    if let Some(idx) = params.iter().position(|param| param.name == name) {
+        return &mut params[idx];
+    }
+    params.push(Param {
+        name: name.to_string(),
+        label: None,
+        default: None,
+        placeholder: None,
+        help: None,
+        secret: false,
+        choices: None,
+    });
+    params.last_mut().unwrap()
+}
+
+fn ensure_option<'a>(options: &'a mut Vec<OptionDef>, id: &str) -> &'a mut OptionDef {
+    if let Some(idx) = options.iter().position(|option| option.id == id) {
+        return &mut options[idx];
+    }
+    options.push(OptionDef {
+        id: id.to_string(),
+        label: None,
+        default_enabled: false,
+    });
+    options.last_mut().unwrap()
+}
+
+fn parse_choices_value(value: &str) -> Result<Option<Vec<String>>, String> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Ok(None);
+    }
+    if value.starts_with('[') {
+        return toml::from_str::<ChoicesSpec>(&format!("choices = {value}"))
+            .map(|wrapper| Some(wrapper.choices))
+            .map_err(|error| error.to_string());
+    }
+    Ok(Some(
+        value
+            .split(',')
+            .map(str::trim)
+            .filter(|item| !item.is_empty())
+            .map(str::to_string)
+            .collect(),
+    ))
+}
+
+fn template_part_display(part: &TemplatePart) -> String {
+    match &part.kind {
+        TemplatePartKind::Required => part.token.clone(),
+        TemplatePartKind::Optional { id } => format!("{id} {}", part.token),
+    }
+}
+
+fn config_edit_target(source: Option<Source>, local_path: Option<PathBuf>) -> ConfigEditTarget {
+    match (source, local_path) {
+        (Some(Source::Local), Some(path)) => ConfigEditTarget::LocalProject(path),
+        _ => ConfigEditTarget::GlobalEditor,
+    }
 }
 
 fn adjust_setting_value(settings: &mut Settings, idx: usize, forward: bool) {
@@ -2073,6 +2860,175 @@ mod tests {
         let spec = options_spec(&options);
         assert!(spec.contains(r#"id = "hidden""#));
         assert!(spec.contains("default_enabled = true"));
+    }
+
+    #[test]
+    fn template_parts_extract_required_and_optional_segments() {
+        let parts =
+            template_parts("find <<{{path}}>> [[name:-name {{name}}]] [[hidden:-hidden]]").unwrap();
+
+        assert_eq!(parts.len(), 3);
+        assert_eq!(parts[0].kind, TemplatePartKind::Required);
+        assert_eq!(parts[0].params, vec!["path"]);
+        assert_eq!(
+            parts[1].kind,
+            TemplatePartKind::Optional {
+                id: "name".to_string()
+            }
+        );
+        assert_eq!(parts[1].params, vec!["name"]);
+        assert_eq!(
+            parts[2].kind,
+            TemplatePartKind::Optional {
+                id: "hidden".to_string()
+            }
+        );
+        assert!(parts[2].params.is_empty());
+    }
+
+    #[test]
+    fn template_property_edit_updates_param_attributes() {
+        let mut draft = config_draft("find <<{{path}}>>");
+
+        set_template_property(
+            &mut draft,
+            &TemplatePropertyFieldKind::ParamLabel("path".to_string()),
+            "路径",
+        )
+        .unwrap();
+        set_template_property(
+            &mut draft,
+            &TemplatePropertyFieldKind::ParamPlaceholder("path".to_string()),
+            "./src",
+        )
+        .unwrap();
+
+        let params = parse_params_spec(&draft.params).unwrap();
+        assert_eq!(params[0].name, "path");
+        assert_eq!(params[0].label.as_deref(), Some("路径"));
+        assert_eq!(params[0].placeholder.as_deref(), Some("./src"));
+    }
+
+    #[test]
+    fn template_property_edit_updates_option_and_optional_param_attributes() {
+        let mut draft = config_draft("find [[glob:-name {{glob}}]]");
+
+        set_template_property(
+            &mut draft,
+            &TemplatePropertyFieldKind::OptionLabel("glob".to_string()),
+            "按名称过滤",
+        )
+        .unwrap();
+        set_template_property(
+            &mut draft,
+            &TemplatePropertyFieldKind::OptionDefaultEnabled("glob".to_string()),
+            "true",
+        )
+        .unwrap();
+        set_template_property(
+            &mut draft,
+            &TemplatePropertyFieldKind::ParamPlaceholder("glob".to_string()),
+            "*.rs",
+        )
+        .unwrap();
+
+        let options = parse_options_spec(&draft.options).unwrap();
+        assert_eq!(options[0].id, "glob");
+        assert_eq!(options[0].label.as_deref(), Some("按名称过滤"));
+        assert!(options[0].default_enabled);
+        let params = parse_params_spec(&draft.params).unwrap();
+        assert_eq!(params[0].placeholder.as_deref(), Some("*.rs"));
+    }
+
+    #[test]
+    fn invalid_template_property_keeps_editor_open() {
+        let mut app = App::new(Config::default());
+        app.open_config_editor();
+        app.open_config_template_property_editor(0);
+        app.select_config_template_property(4, false);
+        app.begin_config_template_property_edit();
+        {
+            let property_editor = app
+                .config_editor
+                .as_mut()
+                .unwrap()
+                .template_property_editor
+                .as_mut()
+                .unwrap();
+            property_editor.edit_buffer = "not-bool".to_string();
+        }
+
+        app.commit_config_template_property_edit();
+
+        let property_editor = app
+            .config_editor
+            .as_ref()
+            .unwrap()
+            .template_property_editor
+            .as_ref()
+            .unwrap();
+        assert!(property_editor.editing);
+        assert!(
+            app.error
+                .as_deref()
+                .is_some_and(|error| error.contains("invalid bool"))
+        );
+    }
+
+    #[test]
+    fn template_part_alias_uses_param_and_option_labels() {
+        let mut draft = config_draft("find <<{{path}}>> [[glob:-name {{glob}}]]");
+        draft.params =
+            r#"[{ name = "path", label = "路径" }, { name = "glob", label = "文件名" }]"#
+                .to_string();
+        draft.options = r#"[{ id = "glob", label = "按名称过滤" }]"#.to_string();
+        let parts = template_parts(&draft.template).unwrap();
+
+        assert_eq!(
+            template_part_alias(&draft, &parts[0]).unwrap(),
+            "path: 路径"
+        );
+        assert_eq!(
+            template_part_alias(&draft, &parts[1]).unwrap(),
+            "glob: 按名称过滤  glob: 文件名"
+        );
+    }
+
+    #[test]
+    fn local_config_commands_are_saved_back_to_local_config() {
+        let target = config_edit_target(
+            Some(Source::Local),
+            Some(PathBuf::from("/work/project/.cmdp.toml")),
+        );
+
+        assert_eq!(
+            target,
+            ConfigEditTarget::LocalProject(PathBuf::from("/work/project/.cmdp.toml"))
+        );
+    }
+
+    #[test]
+    fn global_config_commands_use_global_editor_file() {
+        let target = config_edit_target(
+            Some(Source::Global),
+            Some(PathBuf::from("/work/project/.cmdp.toml")),
+        );
+
+        assert_eq!(target, ConfigEditTarget::GlobalEditor);
+    }
+
+    fn config_draft(template: &str) -> ConfigDraft {
+        ConfigDraft {
+            command_id: "find_file".to_string(),
+            category_id: "file".to_string(),
+            category_alias: "文件".to_string(),
+            title: "查找文件".to_string(),
+            description: String::new(),
+            danger: "false".to_string(),
+            template: template.to_string(),
+            params: "[]".to_string(),
+            options: "[]".to_string(),
+        }
     }
 
     fn test_config() -> Config {
