@@ -4,6 +4,7 @@ use crate::{
     template::Source,
 };
 use ratatui::{prelude::*, widgets::*};
+use std::rc::Rc;
 
 #[derive(Debug, Clone, Copy)]
 pub struct UiAreas {
@@ -254,7 +255,7 @@ fn key_style() -> Style {
 fn draw_settings_popup(f: &mut Frame, app: &App, area: Rect) {
     let texts = app.texts();
     let settings = &app.config.settings;
-    let popup = centered_rect(area, 68, 12);
+    let popup = settings_popup_area(area);
     let rows = vec![
         settings_item(texts.settings_language, settings.language.code()),
         settings_item(
@@ -319,7 +320,7 @@ fn draw_config_editor_popup(f: &mut Frame, app: &App, area: Rect) {
         return;
     };
     let texts = app.texts();
-    let popup = centered_rect(area, 86, 15);
+    let popup = config_editor_popup_area(area);
     let rows = vec![
         config_editor_item(
             texts.config_editor_command_id,
@@ -342,14 +343,29 @@ fn draw_config_editor_popup(f: &mut Frame, app: &App, area: Rect) {
             editor.selected == 3 && editor.editing,
         ),
         config_editor_item(
-            texts.config_editor_template,
+            texts.config_editor_description,
             editor_value(editor, 4),
             editor.selected == 4 && editor.editing,
         ),
         config_editor_item(
-            texts.config_editor_params,
+            texts.config_editor_danger,
             editor_value(editor, 5),
             editor.selected == 5 && editor.editing,
+        ),
+        config_editor_item(
+            texts.config_editor_template,
+            editor_value(editor, 6),
+            editor.selected == 6 && editor.editing,
+        ),
+        config_editor_item(
+            texts.config_editor_params,
+            editor_value(editor, 7),
+            editor.selected == 7 && editor.editing,
+        ),
+        config_editor_item(
+            texts.config_editor_options,
+            editor_value(editor, 8),
+            editor.selected == 8 && editor.editing,
         ),
     ];
     let mut state = ListState::default();
@@ -406,15 +422,8 @@ fn draw_file_picker_popup(f: &mut Frame, app: &App, area: Rect) {
         return;
     };
     let texts = app.texts();
-    let popup = centered_rect(area, 78, 22);
-    let inner = popup.inner(Margin {
-        horizontal: 1,
-        vertical: 1,
-    });
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Length(2), Constraint::Min(3)])
-        .split(inner);
+    let popup = file_picker_popup_area(area);
+    let chunks = file_picker_chunks(popup);
     let title = format!(
         "{}{} ",
         texts.file_picker_title_prefix,
@@ -852,6 +861,33 @@ fn centered_rect(area: Rect, max_width: u16, max_height: u16) -> Rect {
         width,
         height,
     }
+}
+
+pub fn settings_popup_area(area: Rect) -> Rect {
+    centered_rect(area, 68, 12)
+}
+
+pub fn config_editor_popup_area(area: Rect) -> Rect {
+    centered_rect(area, 92, 18)
+}
+
+pub fn file_picker_popup_area(area: Rect) -> Rect {
+    centered_rect(area, 78, 22)
+}
+
+pub fn file_picker_entries_area(area: Rect) -> Rect {
+    file_picker_chunks(file_picker_popup_area(area))[1]
+}
+
+fn file_picker_chunks(popup: Rect) -> Rc<[Rect]> {
+    let inner = popup.inner(Margin {
+        horizontal: 1,
+        vertical: 1,
+    });
+    Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(2), Constraint::Min(3)])
+        .split(inner)
 }
 
 #[cfg(test)]

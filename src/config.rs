@@ -46,8 +46,11 @@ pub struct CommandEdit {
     pub category_id: String,
     pub category_alias: Option<String>,
     pub title: Option<String>,
+    pub description: Option<String>,
+    pub danger: bool,
     pub template: String,
     pub params: Vec<Param>,
+    pub options: Vec<OptionDef>,
 }
 
 pub fn global_dir() -> Result<PathBuf> {
@@ -222,11 +225,11 @@ fn save_command_edit_to_path(path: &Path, edit: &CommandEdit) -> Result<()> {
         Command {
             category: edit.category_id.clone(),
             title: edit.title.clone(),
-            description: None,
-            danger: false,
+            description: edit.description.clone(),
+            danger: edit.danger,
             template: edit.template.clone(),
             params: edit.params.clone(),
-            options: Vec::new(),
+            options: edit.options.clone(),
             source: Source::Global,
         },
     );
@@ -353,7 +356,7 @@ mod tests {
     };
     use crate::{
         i18n::Language,
-        template::{Config, Param, Settings, Source},
+        template::{Config, OptionDef, Param, Settings, Source},
     };
     use std::{
         fs,
@@ -574,7 +577,9 @@ template = "echo ok"
                 category_id: "general".to_string(),
                 category_alias: Some("General".to_string()),
                 title: Some("Say Hello".to_string()),
-                template: "echo <<{{name}}>>".to_string(),
+                description: Some("Greets a name".to_string()),
+                danger: false,
+                template: "echo [[shout:--shout]] <<{{name}}>>".to_string(),
                 params: vec![Param {
                     name: "name".to_string(),
                     label: Some("Name".to_string()),
@@ -583,6 +588,11 @@ template = "echo ok"
                     help: None,
                     secret: false,
                     choices: None,
+                }],
+                options: vec![OptionDef {
+                    id: "shout".to_string(),
+                    label: Some("Shout".to_string()),
+                    default_enabled: true,
                 }],
             },
         )
@@ -594,7 +604,10 @@ template = "echo ok"
         assert!(merged.categories.contains_key("general"));
         let command = merged.commands.get("say_hello").unwrap();
         assert_eq!(command.title.as_deref(), Some("Say Hello"));
+        assert_eq!(command.description.as_deref(), Some("Greets a name"));
         assert_eq!(command.params[0].name, "name");
+        assert_eq!(command.options[0].id, "shout");
+        assert!(command.options[0].default_enabled);
 
         fs::remove_dir_all(dir).unwrap();
     }

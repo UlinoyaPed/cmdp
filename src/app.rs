@@ -5,9 +5,10 @@ use crate::{
     preview, renderer, state,
     template::*,
 };
+use serde::Deserialize;
 
 const SETTINGS_ITEM_COUNT: usize = 4;
-const CONFIG_EDITOR_FIELD_COUNT: usize = 6;
+const CONFIG_EDITOR_FIELD_COUNT: usize = 9;
 use std::{
     collections::{HashMap, HashSet},
     fs,
@@ -71,8 +72,21 @@ pub struct ConfigDraft {
     pub category_id: String,
     pub category_alias: String,
     pub title: String,
+    pub description: String,
+    pub danger: String,
     pub template: String,
     pub params: String,
+    pub options: String,
+}
+
+#[derive(Deserialize)]
+struct ParamsSpec {
+    params: Vec<Param>,
+}
+
+#[derive(Deserialize)]
+struct OptionsSpec {
+    options: Vec<OptionDef>,
 }
 
 pub struct App {
@@ -338,6 +352,15 @@ impl App {
         );
     }
 
+    pub fn select_setting(&mut self, idx: usize, adjust: bool) {
+        if idx < SETTINGS_ITEM_COUNT {
+            self.settings_idx = idx;
+            if adjust {
+                self.adjust_setting(true);
+            }
+        }
+    }
+
     pub fn adjust_setting(&mut self, forward: bool) {
         adjust_setting_value(&mut self.config.settings, self.settings_idx, forward);
         self.persist_settings();
@@ -427,6 +450,19 @@ impl App {
         self.persist_current_input();
     }
 
+    pub fn select_file_picker_entry(&mut self, idx: usize, activate: bool) {
+        let Some(picker) = self.file_picker.as_mut() else {
+            return;
+        };
+        if idx >= picker.entries.len() {
+            return;
+        }
+        picker.selected = idx;
+        if activate {
+            self.file_picker_activate();
+        }
+    }
+
     pub fn open_config_editor(&mut self) {
         self.error = None;
         self.danger_confirmation = None;
@@ -468,6 +504,25 @@ impl App {
             CONFIG_EDITOR_FIELD_COUNT,
             if down { 1 } else { -1 },
         );
+    }
+
+    pub fn select_config_editor_field(&mut self, idx: usize, activate: bool) {
+        if idx >= CONFIG_EDITOR_FIELD_COUNT {
+            return;
+        }
+        if self
+            .config_editor
+            .as_ref()
+            .is_some_and(|editor| editor.editing)
+        {
+            self.commit_config_editor_edit();
+        }
+        if let Some(editor) = self.config_editor.as_mut() {
+            editor.selected = idx;
+        }
+        if activate {
+            self.begin_config_editor_edit();
+        }
     }
 
     pub fn begin_config_editor_edit(&mut self) {
@@ -1186,8 +1241,11 @@ impl App {
                 category_id: command.category.clone(),
                 category_alias,
                 title: command.title.clone().unwrap_or_else(|| id.clone()),
+                description: command.description.clone().unwrap_or_default(),
+                danger: command.danger.to_string(),
                 template: command.template.clone(),
                 params: params_spec(&command.params),
+                options: options_spec(&command.options),
             };
         }
 
@@ -1210,8 +1268,11 @@ impl App {
             category_id,
             category_alias,
             title: "新命令".to_string(),
+            description: String::new(),
+            danger: "false".to_string(),
             template: "echo <<{{value}}>>".to_string(),
-            params: "value:参数".to_string(),
+            params: r#"[{ name = "value", label = "参数" }]"#.to_string(),
+            options: "[]".to_string(),
         }
     }
 }
@@ -1283,8 +1344,11 @@ impl ConfigDraft {
             1 => &self.category_id,
             2 => &self.category_alias,
             3 => &self.title,
-            4 => &self.template,
-            5 => &self.params,
+            4 => &self.description,
+            5 => &self.danger,
+            6 => &self.template,
+            7 => &self.params,
+            8 => &self.options,
             _ => "",
         }
     }
@@ -1295,8 +1359,11 @@ impl ConfigDraft {
             1 => self.category_id = value,
             2 => self.category_alias = value,
             3 => self.title = value,
-            4 => self.template = value,
-            5 => self.params = value,
+            4 => self.description = value,
+            5 => self.danger = value,
+            6 => self.template = value,
+            7 => self.params = value,
+            8 => self.options = value,
             _ => {}
         }
     }
@@ -1307,52 +1374,123 @@ impl ConfigDraft {
             category_id: self.category_id.trim().to_string(),
             category_alias: optional_string(&self.category_alias),
             title: optional_string(&self.title),
+            description: optional_string(&self.description),
+            danger: parse_bool(&self.danger)?,
             template: self.template.trim().to_string(),
             params: parse_params_spec(&self.params)?,
+            options: parse_options_spec(&self.options)?,
         })
     }
 }
 
 fn params_spec(params: &[Param]) -> String {
-    params
-        .iter()
-        .map(|param| match param.label.as_deref() {
-            Some(label) if label != param.name => format!("{}:{label}", param.name),
-            _ => param.name.clone(),
-        })
-        .collect::<Vec<_>>()
-        .join(", ")
+    inline_array(params.iter().map(param_inline).collect())
 }
 
 fn parse_params_spec(spec: &str) -> Result<Vec<Param>, String> {
-    let mut params = Vec::new();
-    for item in spec
-        .split(',')
+    let spec = spec.trim();
+    if spec.is_empty() {
+        return Ok(Vec::new());
+    }
+    if spec.starts_with('[') {
+        return toml::from_str::<ParamsSpec>(&format!("params = {spec}"))
+            .map(|wrapper| wrapper.params)
+            .map_err(|error| error.to_string());
+    }
+
+    parse_legacy_params_spec(spec)
+}
+
+fn options_spec(options: &[OptionDef]) -> String {
+    inline_array(options.iter().map(option_inline).collect())
+}
+
+fn parse_options_spec(spec: &str) -> Result<Vec<OptionDef>, String> {
+    let spec = spec.trim();
+    if spec.is_empty() {
+        return Ok(Vec::new());
+    }
+    toml::from_str::<OptionsSpec>(&format!("options = {spec}"))
+        .map(|wrapper| wrapper.options)
+        .map_err(|error| error.to_string())
+}
+
+fn parse_legacy_params_spec(spec: &str) -> Result<Vec<Param>, String> {
+    spec.split(',')
         .map(str::trim)
         .filter(|item| !item.is_empty())
-    {
-        let (name, label) = item
-            .split_once(':')
-            .map(|(name, label)| (name.trim(), label.trim()))
-            .unwrap_or((item, ""));
-        if name.is_empty() {
-            return Err("empty parameter name".to_string());
-        }
-        params.push(Param {
-            name: name.to_string(),
-            label: if label.is_empty() {
-                None
-            } else {
-                Some(label.to_string())
-            },
-            default: None,
-            placeholder: None,
-            help: None,
-            secret: false,
-            choices: None,
-        });
+        .map(|item| {
+            let (name, label) = item
+                .split_once(':')
+                .map(|(name, label)| (name.trim(), label.trim()))
+                .unwrap_or((item, ""));
+            if name.is_empty() {
+                return Err("empty parameter name".to_string());
+            }
+            Ok(Param {
+                name: name.to_string(),
+                label: optional_string(label),
+                default: None,
+                placeholder: None,
+                help: None,
+                secret: false,
+                choices: None,
+            })
+        })
+        .collect()
+}
+
+fn inline_array(items: Vec<String>) -> String {
+    format!("[{}]", items.join(", "))
+}
+
+fn param_inline(param: &Param) -> String {
+    let mut fields = vec![inline_field("name", &param.name)];
+    push_optional_field(&mut fields, "label", param.label.as_deref());
+    push_optional_field(&mut fields, "default", param.default.as_deref());
+    push_optional_field(&mut fields, "placeholder", param.placeholder.as_deref());
+    push_optional_field(&mut fields, "help", param.help.as_deref());
+    fields.push(format!("secret = {}", param.secret));
+    if let Some(choices) = &param.choices {
+        fields.push(format!(
+            "choices = [{}]",
+            choices
+                .iter()
+                .map(|choice| toml_string(choice))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
     }
-    Ok(params)
+    format!("{{ {} }}", fields.join(", "))
+}
+
+fn option_inline(option: &OptionDef) -> String {
+    let mut fields = vec![inline_field("id", &option.id)];
+    push_optional_field(&mut fields, "label", option.label.as_deref());
+    fields.push(format!("default_enabled = {}", option.default_enabled));
+    format!("{{ {} }}", fields.join(", "))
+}
+
+fn inline_field(key: &str, value: &str) -> String {
+    format!("{key} = {}", toml_string(value))
+}
+
+fn push_optional_field(fields: &mut Vec<String>, key: &str, value: Option<&str>) {
+    if let Some(value) = value {
+        fields.push(inline_field(key, value));
+    }
+}
+
+fn toml_string(value: &str) -> String {
+    toml::Value::String(value.to_string()).to_string()
+}
+
+fn parse_bool(value: &str) -> Result<bool, String> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "true" | "1" | "yes" | "on" | "是" | "开" => Ok(true),
+        "false" | "0" | "no" | "off" | "否" | "关" => Ok(false),
+        value => Err(format!("invalid bool '{value}'")),
+    }
 }
 
 fn optional_string(value: &str) -> Option<String> {
@@ -1889,17 +2027,52 @@ mod tests {
     }
 
     #[test]
-    fn params_spec_parses_names_and_labels() {
-        let params = parse_params_spec("path:路径, pattern, token:Token").unwrap();
+    fn params_spec_parses_all_param_fields() {
+        let params = parse_params_spec(
+            r#"[{ name = "path", label = "路径", default = ".", placeholder = "./src", help = "选择目录", secret = true, choices = [".", "./src"] }]"#,
+        )
+        .unwrap();
+
+        assert_eq!(params[0].name, "path");
+        assert_eq!(params[0].label.as_deref(), Some("路径"));
+        assert_eq!(params[0].default.as_deref(), Some("."));
+        assert_eq!(params[0].placeholder.as_deref(), Some("./src"));
+        assert_eq!(params[0].help.as_deref(), Some("选择目录"));
+        assert!(params[0].secret);
+        assert_eq!(
+            params[0].choices.as_ref().unwrap(),
+            &vec![".".to_string(), "./src".to_string()]
+        );
+
+        let spec = params_spec(&params);
+        assert!(spec.contains(r#"name = "path""#));
+        assert!(spec.contains(r#"choices = [".", "./src"]"#));
+    }
+
+    #[test]
+    fn params_spec_keeps_legacy_name_label_shorthand() {
+        let params = parse_params_spec("path:路径, pattern").unwrap();
 
         assert_eq!(params[0].name, "path");
         assert_eq!(params[0].label.as_deref(), Some("路径"));
         assert_eq!(params[1].name, "pattern");
         assert!(params[1].label.is_none());
-        assert_eq!(params[2].name, "token");
-        assert_eq!(params[2].label.as_deref(), Some("Token"));
+    }
 
-        assert_eq!(params_spec(&params), "path:路径, pattern, token:Token");
+    #[test]
+    fn options_spec_parses_option_fields() {
+        let options = parse_options_spec(
+            r#"[{ id = "hidden", label = "显示隐藏文件", default_enabled = true }]"#,
+        )
+        .unwrap();
+
+        assert_eq!(options[0].id, "hidden");
+        assert_eq!(options[0].label.as_deref(), Some("显示隐藏文件"));
+        assert!(options[0].default_enabled);
+
+        let spec = options_spec(&options);
+        assert!(spec.contains(r#"id = "hidden""#));
+        assert!(spec.contains("default_enabled = true"));
     }
 
     fn test_config() -> Config {

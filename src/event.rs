@@ -141,11 +141,19 @@ pub fn handle_key(app: &mut App, key: KeyEvent) {
 }
 
 pub fn handle_mouse(app: &mut App, mouse: MouseEvent, screen: Rect) {
-    if app.show_help
-        || app.show_settings
-        || app.config_editor.is_some()
-        || app.file_picker.is_some()
-    {
+    if app.show_help {
+        return;
+    }
+    if app.show_settings {
+        handle_settings_mouse(app, mouse, screen);
+        return;
+    }
+    if app.config_editor.is_some() {
+        handle_config_editor_mouse(app, mouse, screen);
+        return;
+    }
+    if app.file_picker.is_some() {
+        handle_file_picker_mouse(app, mouse, screen);
         return;
     }
 
@@ -164,6 +172,48 @@ pub fn handle_mouse(app: &mut App, mouse: MouseEvent, screen: Rect) {
         }
         MouseEventKind::ScrollUp => scroll_at(app, mouse.column, mouse.row, screen, false),
         MouseEventKind::ScrollDown => scroll_at(app, mouse.column, mouse.row, screen, true),
+        _ => {}
+    }
+}
+
+fn handle_settings_mouse(app: &mut App, mouse: MouseEvent, screen: Rect) {
+    let popup = ui::settings_popup_area(screen);
+    match mouse.kind {
+        MouseEventKind::Down(MouseButton::Left) => {
+            if let Some(idx) = item_index(popup, mouse.column, mouse.row) {
+                app.select_setting(idx, true);
+            }
+        }
+        MouseEventKind::ScrollUp => app.move_settings(false),
+        MouseEventKind::ScrollDown => app.move_settings(true),
+        _ => {}
+    }
+}
+
+fn handle_config_editor_mouse(app: &mut App, mouse: MouseEvent, screen: Rect) {
+    let popup = ui::config_editor_popup_area(screen);
+    match mouse.kind {
+        MouseEventKind::Down(MouseButton::Left) => {
+            if let Some(idx) = item_index(popup, mouse.column, mouse.row) {
+                app.select_config_editor_field(idx, true);
+            }
+        }
+        MouseEventKind::ScrollUp => app.move_config_editor(false),
+        MouseEventKind::ScrollDown => app.move_config_editor(true),
+        _ => {}
+    }
+}
+
+fn handle_file_picker_mouse(app: &mut App, mouse: MouseEvent, screen: Rect) {
+    let entries = ui::file_picker_entries_area(screen);
+    match mouse.kind {
+        MouseEventKind::Down(MouseButton::Left) => {
+            if let Some(idx) = plain_item_index(entries, mouse.column, mouse.row) {
+                app.select_file_picker_entry(idx, true);
+            }
+        }
+        MouseEventKind::ScrollUp => app.move_file_picker(false),
+        MouseEventKind::ScrollDown => app.move_file_picker(true),
         _ => {}
     }
 }
@@ -193,9 +243,86 @@ fn item_index(area: Rect, column: u16, row: u16) -> Option<usize> {
     }
 }
 
+fn plain_item_index(area: Rect, column: u16, row: u16) -> Option<usize> {
+    if contains(area, column, row) {
+        Some((row - area.y) as usize)
+    } else {
+        None
+    }
+}
+
 fn contains(area: Rect, column: u16, row: u16) -> bool {
     column >= area.x
         && column < area.x.saturating_add(area.width)
         && row >= area.y
         && row < area.y.saturating_add(area.height)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        app::{FilePicker, FilePickerEntry},
+        template::Config,
+    };
+    use crossterm::event::KeyModifiers;
+    use std::path::PathBuf;
+
+    #[test]
+    fn mouse_click_starts_config_editor_field_editing() {
+        let mut app = App::new(Config::default());
+        app.open_config_editor();
+        let screen = Rect::new(0, 0, 100, 30);
+        let popup = ui::config_editor_popup_area(screen);
+
+        handle_mouse(
+            &mut app,
+            MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: popup.x + 2,
+                row: popup.y + 1,
+                modifiers: KeyModifiers::NONE,
+            },
+            screen,
+        );
+
+        let editor = app.config_editor.as_ref().unwrap();
+        assert_eq!(editor.selected, 0);
+        assert!(editor.editing);
+    }
+
+    #[test]
+    fn mouse_click_selects_file_picker_entry() {
+        let mut app = App::new(Config::default());
+        app.file_picker = Some(FilePicker {
+            param_name: "path".to_string(),
+            dir: PathBuf::from("."),
+            entries: vec![FilePickerEntry {
+                name: "Cargo.toml".to_string(),
+                path: PathBuf::from("Cargo.toml"),
+                is_dir: false,
+            }],
+            selected: 0,
+            error: None,
+        });
+        let screen = Rect::new(0, 0, 100, 30);
+        let entries = ui::file_picker_entries_area(screen);
+
+        handle_mouse(
+            &mut app,
+            MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: entries.x,
+                row: entries.y,
+                modifiers: KeyModifiers::NONE,
+            },
+            screen,
+        );
+
+        assert_eq!(
+            app.values.get("path").map(String::as_str),
+            Some("Cargo.toml")
+        );
+        assert!(app.file_picker.is_none());
+    }
 }
