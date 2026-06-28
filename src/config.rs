@@ -7,16 +7,68 @@ use std::{
     path::{Path, PathBuf},
 };
 
+const DEFAULT_SETTINGS_TOML: &str = r#"# cmdp settings
+language = "zh-CN"
+remember_last_selection = false
+remember_last_input = false
+input_record_limit = 20
+"#;
+
+const DEFAULT_COMMANDS_TOML: &str = r#"version = 1
+
+[categories.general]
+alias = "常用命令"
+
+[commands.list_files]
+category = "general"
+title = "列出文件"
+description = "列出指定目录下的文件"
+danger = false
+template = '''
+ls [[all:-a]] [[long:-l]] <<"{{path}}">>
+'''
+
+params = [
+  { name = "path", label = "路径", default = ".", placeholder = "." },
+]
+
+options = [
+  { id = "all", label = "显示隐藏文件 -a", default_enabled = false },
+  { id = "long", label = "详细列表 -l", default_enabled = true },
+]
+"#;
+
 pub fn global_dir() -> Result<PathBuf> {
     let base = BaseDirs::new().context("cannot determine home directory")?;
     Ok(base.home_dir().join(".config/cmdp"))
 }
 
-pub fn ensure_global_dir() -> Result<()> {
-    let dir = global_dir()?;
+fn ensure_dir(dir: &Path) -> Result<()> {
     if !dir.exists() {
-        fs::create_dir_all(&dir)?;
+        fs::create_dir_all(dir)?;
     }
+    Ok(())
+}
+
+fn ensure_global_files() -> Result<()> {
+    ensure_global_files_in_dir(&global_dir()?)
+}
+
+fn ensure_global_files_in_dir(dir: &Path) -> Result<()> {
+    ensure_dir(dir)?;
+
+    let settings = dir.join("settings.toml");
+    if !settings.exists() {
+        fs::write(&settings, DEFAULT_SETTINGS_TOML)
+            .with_context(|| format!("write {}", settings.display()))?;
+    }
+
+    if toml_files_in_dir(dir)?.is_empty() {
+        let commands = dir.join("commands.toml");
+        fs::write(&commands, DEFAULT_COMMANDS_TOML)
+            .with_context(|| format!("write {}", commands.display()))?;
+    }
+
     Ok(())
 }
 
@@ -43,7 +95,7 @@ pub fn find_local(start: &Path) -> Option<PathBuf> {
 }
 
 pub fn load() -> Result<Config> {
-    ensure_global_dir()?;
+    ensure_global_files()?;
     let mut merged = Config {
         settings: load_settings()?,
         ..Config::default()
@@ -194,7 +246,9 @@ fn validate_id(kind: &str, id: &str) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{load_settings_from_path, merge_file, toml_files_in_dir};
+    use super::{
+        ensure_global_files_in_dir, load_settings_from_path, merge_file, toml_files_in_dir,
+    };
     use crate::{
         i18n::Language,
         template::{Config, Source},
@@ -324,6 +378,56 @@ language = "en"
         assert!(settings.remember_last_input);
         assert_eq!(settings.input_record_limit, 7);
         assert_eq!(settings.language, Language::En);
+
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn startup_config_files_are_generated_when_missing() {
+        let dir = temp_config_dir();
+
+        ensure_global_files_in_dir(&dir).unwrap();
+
+        let settings = dir.join("settings.toml");
+        let commands = dir.join("commands.toml");
+        assert!(settings.exists());
+        assert!(commands.exists());
+
+        let settings = load_settings_from_path(&settings).unwrap();
+        assert_eq!(settings.language, Language::ZhCn);
+
+        let mut merged = Config::default();
+        merge_file(&mut merged, &commands, Source::Global).unwrap();
+        assert!(merged.categories.contains_key("general"));
+        assert!(merged.commands.contains_key("list_files"));
+
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn startup_config_generation_keeps_existing_command_files() {
+        let dir = temp_config_dir();
+        fs::create_dir_all(&dir).unwrap();
+        let custom = dir.join("custom.toml");
+        fs::write(
+            &custom,
+            r#"
+[categories.tools]
+alias = "Tools"
+
+[commands.echo]
+category = "tools"
+title = "Echo"
+template = "echo ok"
+"#,
+        )
+        .unwrap();
+
+        ensure_global_files_in_dir(&dir).unwrap();
+
+        assert!(dir.join("settings.toml").exists());
+        assert!(!dir.join("commands.toml").exists());
+        assert!(custom.exists());
 
         fs::remove_dir_all(dir).unwrap();
     }
