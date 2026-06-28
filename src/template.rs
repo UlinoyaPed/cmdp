@@ -1,3 +1,4 @@
+use crate::i18n::Language;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
@@ -15,6 +16,8 @@ pub struct RawConfig {
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
 pub struct Settings {
     #[serde(default)]
+    pub language: Language,
+    #[serde(default)]
     pub remember_last_selection: bool,
     #[serde(default)]
     pub remember_last_input: bool,
@@ -25,6 +28,7 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
+            language: Language::default(),
             remember_last_selection: false,
             remember_last_input: false,
             input_record_limit: DEFAULT_INPUT_RECORD_LIMIT,

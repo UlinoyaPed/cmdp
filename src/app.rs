@@ -1,5 +1,6 @@
 use crate::{
     config,
+    i18n::Texts,
     parser::{self, ParsedTemplate},
     preview, renderer, state,
     template::*,
@@ -118,6 +119,10 @@ impl App {
             }
             Err(e) => self.error = Some(e.to_string()),
         }
+    }
+
+    pub fn texts(&self) -> &'static Texts {
+        self.config.settings.language.texts()
     }
 
     pub fn category_ids(&self) -> Vec<&String> {
@@ -277,17 +282,17 @@ impl App {
         let Some(FormItem::Param { name, choices, .. }) =
             self.form_items().get(self.form_idx).cloned()
         else {
-            self.error = Some("当前项不是可输入参数，不能打开文件选择".to_string());
+            self.error = Some(self.texts().not_text_param_file_picker.to_string());
             return;
         };
         if !choices.is_empty() {
-            self.error = Some("当前项不是可输入参数，不能打开文件选择".to_string());
+            self.error = Some(self.texts().not_text_param_file_picker.to_string());
             return;
         }
 
         let dir = self.file_picker_start_dir(&name);
         self.focus = Focus::Form;
-        self.file_picker = Some(load_file_picker(name, dir));
+        self.file_picker = Some(load_file_picker(name, dir, self.texts()));
     }
 
     pub fn close_file_picker(&mut self) {
@@ -312,7 +317,7 @@ impl App {
         let param_name = picker.param_name.clone();
         let parent = picker.dir.parent().map(Path::to_path_buf);
         if let Some(parent) = parent {
-            self.file_picker = Some(load_file_picker(param_name, parent));
+            self.file_picker = Some(load_file_picker(param_name, parent, self.texts()));
         }
     }
 
@@ -331,7 +336,7 @@ impl App {
                 .as_ref()
                 .map(|picker| picker.param_name.clone())
                 .unwrap_or_default();
-            self.file_picker = Some(load_file_picker(param_name, entry.path));
+            self.file_picker = Some(load_file_picker(param_name, entry.path, self.texts()));
         } else {
             self.file_picker_select();
         }
@@ -556,12 +561,11 @@ impl App {
 
     pub fn preview_text(&self) -> String {
         if self.config.commands.is_empty() {
-            return "没有可用命令\n请在 ~/.config/cmdp/ 添加 .toml 配置，或在当前项目创建 .cmdp.toml"
-                .into();
+            return self.texts().empty_config_preview.into();
         }
         match (self.current_command(), self.render(true)) {
-            (Some((_, c)), Some(r)) => preview::preview(c, &r),
-            _ => "没有可用命令".into(),
+            (Some((_, c)), Some(r)) => preview::preview(c, &r, self.texts()),
+            _ => self.texts().no_available_command.into(),
         }
     }
 
@@ -614,7 +618,11 @@ impl App {
         };
         if !rendered.missing.is_empty() {
             self.danger_confirmation = None;
-            self.error = Some(format!("缺失参数：{}", rendered.missing.join(", ")));
+            self.error = Some(format!(
+                "{}{}",
+                self.texts().missing_params_prefix,
+                rendered.missing.join(", ")
+            ));
             return;
         }
 
@@ -624,7 +632,7 @@ impl App {
             && self.danger_confirmation.as_deref() != Some(rendered.text.as_str())
         {
             self.danger_confirmation = Some(rendered.text);
-            self.error = Some("危险命令：再次 Ctrl+y 或点击执行确认".to_string());
+            self.error = Some(self.texts().danger_confirmation.to_string());
             return;
         }
 
@@ -665,7 +673,12 @@ impl App {
         match state::load() {
             Ok(Some(state)) => self.apply_selection_state(&state),
             Ok(None) => {}
-            Err(error) => self.error = Some(format!("读取上次选择失败：{error}")),
+            Err(error) => {
+                self.error = Some(format!(
+                    "{}{error}",
+                    self.texts().read_last_selection_failed_prefix
+                ));
+            }
         }
     }
 
@@ -679,7 +692,10 @@ impl App {
         app_state.command_id = self.current_command().map(|(id, _)| id.clone());
         self.clamp_input_records(&mut app_state);
         if let Err(error) = state::save(&app_state) {
-            self.error = Some(format!("保存上次选择失败：{error}"));
+            self.error = Some(format!(
+                "{}{error}",
+                self.texts().save_last_selection_failed_prefix
+            ));
         }
     }
 
@@ -691,7 +707,12 @@ impl App {
         match state::load() {
             Ok(Some(state)) => self.apply_current_input(&state),
             Ok(None) => {}
-            Err(error) => self.error = Some(format!("读取上次输入失败：{error}")),
+            Err(error) => {
+                self.error = Some(format!(
+                    "{}{error}",
+                    self.texts().read_last_input_failed_prefix
+                ));
+            }
         }
     }
 
@@ -727,7 +748,10 @@ impl App {
         app_state.input_records.insert(0, record);
         self.clamp_input_records(&mut app_state);
         if let Err(error) = state::save(&app_state) {
-            self.error = Some(format!("保存上次输入失败：{error}"));
+            self.error = Some(format!(
+                "{}{error}",
+                self.texts().save_last_input_failed_prefix
+            ));
         }
     }
 
@@ -745,7 +769,10 @@ impl App {
             .input_records
             .retain(|record| record.command_id != command_id);
         if let Err(error) = state::save(&app_state) {
-            self.error = Some(format!("清除上次输入失败：{error}"));
+            self.error = Some(format!(
+                "{}{error}",
+                self.texts().clear_last_input_failed_prefix
+            ));
         }
     }
 
@@ -754,7 +781,7 @@ impl App {
             Ok(Some(state)) => state,
             Ok(None) => AppState::default(),
             Err(error) => {
-                self.error = Some(format!("读取状态失败：{error}"));
+                self.error = Some(format!("{}{error}", self.texts().read_state_failed_prefix));
                 AppState::default()
             }
         }
@@ -898,7 +925,7 @@ impl App {
     }
 }
 
-fn load_file_picker(param_name: String, dir: PathBuf) -> FilePicker {
+fn load_file_picker(param_name: String, dir: PathBuf, texts: &'static Texts) -> FilePicker {
     let mut picker = FilePicker {
         param_name,
         dir,
@@ -906,26 +933,29 @@ fn load_file_picker(param_name: String, dir: PathBuf) -> FilePicker {
         selected: 0,
         error: None,
     };
-    match read_file_entries(&picker.dir) {
+    match read_file_entries(&picker.dir, texts) {
         Ok(entries) => picker.entries = entries,
         Err(error) => picker.error = Some(error),
     }
     picker
 }
 
-fn read_file_entries(dir: &Path) -> Result<Vec<FilePickerEntry>, String> {
+fn read_file_entries(dir: &Path, texts: &'static Texts) -> Result<Vec<FilePickerEntry>, String> {
     let mut entries = Vec::new();
     entries.push(FilePickerEntry {
         name: ".".to_string(),
         path: dir.to_path_buf(),
         is_dir: true,
     });
-    for entry in fs::read_dir(dir).map_err(|error| format!("读取目录失败：{error}"))? {
-        let entry = entry.map_err(|error| format!("读取目录项失败：{error}"))?;
+    for entry in
+        fs::read_dir(dir).map_err(|error| format!("{}{error}", texts.read_dir_failed_prefix))?
+    {
+        let entry =
+            entry.map_err(|error| format!("{}{error}", texts.read_dir_entry_failed_prefix))?;
         let path = entry.path();
         let file_type = entry
             .file_type()
-            .map_err(|error| format!("读取文件类型失败：{error}"))?;
+            .map_err(|error| format!("{}{error}", texts.read_file_type_failed_prefix))?;
         let name = entry.file_name().to_string_lossy().into_owned();
         entries.push(FilePickerEntry {
             name,
@@ -1066,6 +1096,7 @@ fn fuzzy_matches(haystack: &str, needle: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::i18n::Language;
     use indexmap::IndexMap;
 
     #[test]
@@ -1196,6 +1227,22 @@ mod tests {
 
         assert!(preview.contains("~/.config/cmdp/"));
         assert!(preview.contains(".cmdp.toml"));
+    }
+
+    #[test]
+    fn empty_config_preview_uses_configured_language() {
+        let app = App::new(Config {
+            settings: Settings {
+                language: Language::En,
+                ..Settings::default()
+            },
+            ..Config::default()
+        });
+
+        let preview = app.preview_text();
+
+        assert!(preview.contains("No commands available"));
+        assert!(preview.contains("~/.config/cmdp/"));
     }
 
     #[test]
@@ -1368,7 +1415,7 @@ mod tests {
         fs::create_dir_all(dir.join("z_dir")).unwrap();
         fs::write(dir.join("a_file"), "").unwrap();
 
-        let entries = read_file_entries(&dir).unwrap();
+        let entries = read_file_entries(&dir, Language::ZhCn.texts()).unwrap();
 
         assert_eq!(entries[0].name, ".");
         assert!(entries[0].is_dir);

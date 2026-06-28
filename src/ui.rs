@@ -1,5 +1,6 @@
 use crate::{
     app::{App, Focus, FormItem},
+    i18n::Texts,
     template::Source,
 };
 use ratatui::{prelude::*, widgets::*};
@@ -44,6 +45,7 @@ pub fn areas(size: Rect) -> UiAreas {
 
 pub fn draw(f: &mut Frame, app: &App) {
     let areas = areas(f.area());
+    let texts = app.texts();
 
     draw_header(f, app, areas.header);
     draw_execute_button(f, app, areas.execute_button);
@@ -60,13 +62,13 @@ pub fn draw(f: &mut Frame, app: &App) {
             .style(Style::default().fg(Color::White))
             .wrap(Wrap { trim: false })
             .block(
-                block("预览  Ctrl+y 执行", false).border_style(Style::default().fg(Color::Blue)),
+                block(texts.preview_title, false).border_style(Style::default().fg(Color::Blue)),
             ),
         areas.preview,
     );
 
     if app.show_help {
-        draw_help_popup(f, f.area());
+        draw_help_popup(f, f.area(), texts);
     }
     if app.file_picker.is_some() {
         draw_file_picker_popup(f, app, f.area());
@@ -74,17 +76,18 @@ pub fn draw(f: &mut Frame, app: &App) {
 }
 
 fn draw_header(f: &mut Frame, app: &App, area: Rect) {
+    let texts = app.texts();
     let mode = if app.editing {
-        "编辑参数"
+        texts.mode_editing
     } else if app.search_editing {
-        "搜索命令"
+        texts.mode_search
     } else {
-        "普通"
+        texts.mode_normal
     };
     let search = if app.search_active() {
         format!("/{}", truncate(&app.search_query, 24))
     } else {
-        "/ 搜索".to_string()
+        texts.search_label.to_string()
     };
     let line = Line::from(vec![
         Span::styled(
@@ -95,7 +98,7 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect) {
         ),
         Span::styled(format!(" {mode} "), Style::default().fg(Color::Yellow)),
         Span::styled(
-            format!(" cfg:{} ", source_summary(&app.config.sources)),
+            format!(" cfg:{} ", source_summary(&app.config.sources, texts)),
             Style::default().fg(Color::Gray),
         ),
         Span::styled(
@@ -108,10 +111,7 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect) {
                 Style::default().fg(Color::Gray)
             },
         ),
-        Span::styled(
-            " Tab/←→切换  f文件  F1/?帮助  Ctrl+y执行  q退出",
-            Style::default().fg(Color::DarkGray),
-        ),
+        Span::styled(texts.header_shortcuts, Style::default().fg(Color::DarkGray)),
     ]);
     f.render_widget(
         Paragraph::new(line).block(
@@ -124,10 +124,11 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect) {
 }
 
 fn draw_execute_button(f: &mut Frame, app: &App, area: Rect) {
+    let texts = app.texts();
     let pending = app.danger_confirmation.is_some();
     let (label, style) = if pending {
         (
-            " 确认 ",
+            texts.confirm_label,
             Style::default()
                 .fg(Color::White)
                 .bg(Color::Red)
@@ -135,7 +136,7 @@ fn draw_execute_button(f: &mut Frame, app: &App, area: Rect) {
         )
     } else {
         (
-            " 执行 ",
+            texts.execute_label,
             Style::default()
                 .fg(Color::Black)
                 .bg(Color::LightGreen)
@@ -150,59 +151,62 @@ fn draw_execute_button(f: &mut Frame, app: &App, area: Rect) {
     );
 }
 
-fn draw_help_popup(f: &mut Frame, area: Rect) {
+fn draw_help_popup(f: &mut Frame, area: Rect, texts: &Texts) {
     let popup = centered_rect(area, 72, 20);
     let rows = vec![
         Line::from(vec![
             Span::styled("F1 / ?", key_style()),
-            Span::raw(" 打开或关闭此窗口"),
+            Span::raw(texts.help_toggle),
         ]),
         Line::from(vec![
             Span::styled("Esc", key_style()),
-            Span::raw(" 关闭弹窗 / 退出搜索"),
+            Span::raw(texts.help_close_popup_or_search),
         ]),
         Line::from(vec![
             Span::styled("q", key_style()),
-            Span::raw(" 退出，不执行命令"),
+            Span::raw(texts.help_quit),
         ]),
         Line::from(""),
         Line::from(vec![
             Span::styled("Tab / Shift+Tab", key_style()),
-            Span::raw(" 切换区域"),
+            Span::raw(texts.help_switch_area),
         ]),
         Line::from(vec![
             Span::styled("Left / Right", key_style()),
-            Span::raw(" 切换区域"),
+            Span::raw(texts.help_switch_area),
         ]),
         Line::from(vec![
             Span::styled("Up / Down / j / k", key_style()),
-            Span::raw(" 移动选择"),
+            Span::raw(texts.help_move_selection),
         ]),
         Line::from(vec![
             Span::styled("Enter", key_style()),
-            Span::raw(" 进入区域或编辑参数"),
+            Span::raw(texts.help_enter),
         ]),
         Line::from(vec![
             Span::styled("Space", key_style()),
-            Span::raw(" 切换选项或 choices 参数"),
+            Span::raw(texts.help_space),
         ]),
         Line::from(""),
-        Line::from(vec![Span::styled("/", key_style()), Span::raw(" 搜索命令")]),
+        Line::from(vec![
+            Span::styled("/", key_style()),
+            Span::raw(texts.help_search),
+        ]),
         Line::from(vec![
             Span::styled("f", key_style()),
-            Span::raw(" 为当前输入参数选择文件"),
+            Span::raw(texts.help_file_picker),
         ]),
         Line::from(vec![
             Span::styled("Ctrl+d", key_style()),
-            Span::raw(" 当前命令回到配置默认值"),
+            Span::raw(texts.help_reset_defaults),
         ]),
         Line::from(vec![
             Span::styled("Ctrl+r", key_style()),
-            Span::raw(" 重新加载配置"),
+            Span::raw(texts.help_reload_config),
         ]),
         Line::from(vec![
             Span::styled("Ctrl+y", key_style()),
-            Span::raw(" 执行当前命令"),
+            Span::raw(texts.help_run_current),
         ]),
     ];
 
@@ -214,7 +218,7 @@ fn draw_help_popup(f: &mut Frame, area: Rect) {
             .block(
                 Block::default()
                     .title(Span::styled(
-                        " 快捷键 ",
+                        texts.help_title,
                         Style::default()
                             .fg(Color::Yellow)
                             .add_modifier(Modifier::BOLD),
@@ -237,6 +241,7 @@ fn draw_file_picker_popup(f: &mut Frame, app: &App, area: Rect) {
     let Some(picker) = &app.file_picker else {
         return;
     };
+    let texts = app.texts();
     let popup = centered_rect(area, 78, 22);
     let inner = popup.inner(Margin {
         horizontal: 1,
@@ -247,7 +252,8 @@ fn draw_file_picker_popup(f: &mut Frame, app: &App, area: Rect) {
         .constraints([Constraint::Length(2), Constraint::Min(3)])
         .split(inner);
     let title = format!(
-        " 文件选择  {} ",
+        "{}{} ",
+        texts.file_picker_title_prefix,
         truncate(&picker.dir.display().to_string(), 54)
     );
 
@@ -261,7 +267,7 @@ fn draw_file_picker_popup(f: &mut Frame, app: &App, area: Rect) {
                     .add_modifier(Modifier::BOLD),
             ))
             .title_bottom(Span::styled(
-                " Enter进入/选择  Space选择高亮项  ./当前目录  ←/Backspace上级  Esc/f关闭 ",
+                texts.file_picker_help,
                 Style::default().fg(Color::DarkGray),
             ))
             .borders(Borders::ALL)
@@ -279,7 +285,7 @@ fn draw_file_picker_popup(f: &mut Frame, app: &App, area: Rect) {
         .unwrap_or_else(|| picker.param_name.clone());
     f.render_widget(
         Paragraph::new(Line::from(vec![
-            Span::styled("目标参数 ", Style::default().fg(Color::DarkGray)),
+            Span::styled(texts.target_parameter, Style::default().fg(Color::DarkGray)),
             Span::styled(target, Style::default().fg(Color::LightGreen)),
         ])),
         chunks[0],
@@ -297,7 +303,7 @@ fn draw_file_picker_popup(f: &mut Frame, app: &App, area: Rect) {
 
     let rows: Vec<_> = if picker.entries.is_empty() {
         vec![ListItem::new(Line::from(Span::styled(
-            "目录为空",
+            texts.empty_directory,
             Style::default().fg(Color::DarkGray),
         )))]
     } else {
@@ -358,6 +364,7 @@ fn block(t: &str, focus: bool) -> Block<'static> {
 }
 
 fn draw_categories(f: &mut Frame, app: &App, area: Rect) {
+    let texts = app.texts();
     let items: Vec<ListItem> = app
         .config
         .categories
@@ -375,22 +382,26 @@ fn draw_categories(f: &mut Frame, app: &App, area: Rect) {
         List::new(items)
             .highlight_symbol("› ")
             .highlight_style(Style::default().bg(Color::DarkGray).fg(Color::White))
-            .block(block("分类", app.focus == Focus::Categories)),
+            .block(block(
+                texts.categories_title,
+                app.focus == Focus::Categories,
+            )),
         area,
         &mut state,
     );
 }
 
 fn draw_commands(f: &mut Frame, app: &App, area: Rect) {
+    let texts = app.texts();
     let commands = app.visible_commands();
     let items: Vec<ListItem> = if commands.is_empty() {
         vec![ListItem::new(Line::from(Span::styled(
             if app.search_active() {
-                "无匹配命令"
+                texts.no_matching_commands
             } else if app.config.commands.is_empty() {
-                "未加载配置"
+                texts.config_not_loaded
             } else {
-                "无命令"
+                texts.no_commands
             },
             Style::default().fg(Color::DarkGray),
         )))]
@@ -409,9 +420,13 @@ fn draw_commands(f: &mut Frame, app: &App, area: Rect) {
     }
 
     let title = if app.search_active() {
-        format!("命令  /{}", truncate(&app.search_query, 16))
+        format!(
+            "{}  /{}",
+            texts.commands_title,
+            truncate(&app.search_query, 16)
+        )
     } else {
-        "命令".to_string()
+        texts.commands_title.to_string()
     };
     f.render_stateful_widget(
         List::new(items)
@@ -451,6 +466,7 @@ fn command_item(app: &App, id: &str, command: &crate::template::Command) -> List
 }
 
 fn draw_form(f: &mut Frame, app: &App, area: Rect) {
+    let texts = app.texts();
     let form_items = app.form_items();
     let mut rows: Vec<ListItem> = Vec::new();
 
@@ -467,6 +483,7 @@ fn draw_form(f: &mut Frame, app: &App, area: Rect) {
                 required,
                 ..
             } => param_item(
+                texts,
                 app,
                 selected,
                 label,
@@ -483,7 +500,7 @@ fn draw_form(f: &mut Frame, app: &App, area: Rect) {
 
     if rows.is_empty() && app.current_command().is_some() {
         rows.push(ListItem::new(Line::from(Span::styled(
-            "无参数或可选项",
+            texts.no_params_or_options,
             Style::default().fg(Color::DarkGray),
         ))));
     }
@@ -498,7 +515,7 @@ fn draw_form(f: &mut Frame, app: &App, area: Rect) {
         List::new(rows)
             .highlight_symbol("› ")
             .highlight_style(Style::default().bg(Color::DarkGray).fg(Color::White))
-            .block(block("参数 / 选项", app.focus == Focus::Form)),
+            .block(block(texts.form_title, app.focus == Focus::Form)),
         area,
         &mut state,
     );
@@ -506,6 +523,7 @@ fn draw_form(f: &mut Frame, app: &App, area: Rect) {
 
 #[allow(clippy::too_many_arguments)]
 fn param_item(
+    texts: &Texts,
     app: &App,
     selected: bool,
     label: String,
@@ -526,7 +544,9 @@ fn param_item(
     };
     let empty = raw_value.is_empty();
     let display_value = if empty {
-        placeholder.clone().unwrap_or_else(|| "输入...".to_string())
+        placeholder
+            .clone()
+            .unwrap_or_else(|| texts.input_placeholder.to_string())
     } else {
         raw_value
     };
@@ -626,14 +646,14 @@ fn edit_display(value: &str, cursor: usize) -> String {
     display
 }
 
-fn source_summary(sources: &[String]) -> &'static str {
+fn source_summary(sources: &[String], texts: &Texts) -> &'static str {
     let has_global = sources.iter().any(|source| source.starts_with("global:"));
     let has_local = sources.iter().any(|source| source.starts_with("local:"));
     match (has_global, has_local) {
-        (true, true) => "global+local",
-        (true, false) => "global",
-        (false, true) => "local",
-        (false, false) => "none",
+        (true, true) => texts.source_global_local,
+        (true, false) => texts.source_global,
+        (false, true) => texts.source_local,
+        (false, false) => texts.source_none,
     }
 }
 

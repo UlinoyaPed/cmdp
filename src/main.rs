@@ -2,6 +2,7 @@ mod app;
 mod config;
 mod error;
 mod event;
+mod i18n;
 mod output;
 mod parser;
 mod preview;

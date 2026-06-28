@@ -17,6 +17,7 @@
 - `src/ui.rs`: ratatui 布局和界面绘制
 - `src/event.rs`: crossterm 键盘事件处理
 - `src/config.rs`: 全局/本地配置发现、读取、合并、校验
+- `src/i18n.rs`: 内置界面文案的语言选择和翻译表
 - `src/template.rs`: 配置数据结构
 - `src/parser.rs`: 模板语法解析和参数使用分析
 - `src/renderer.rs`: 根据参数和可选项渲染最终命令
@@ -85,9 +86,12 @@ cargo run
 remember_last_selection = true
 remember_last_input = true
 input_record_limit = 20
+language = "zh-CN"
 ```
 
 这个文件只放程序设置，不参与命令配置合并；`settings.toml` 也会从全局命令配置列表里排除。开启后，`cmdp` 会把最近选择的分类、命令和输入快照写入 `${XDG_STATE_HOME:-~/.local/state}/cmdp/state.toml`，下次启动或 `Ctrl+r` 重新加载后恢复。在 Unix 系统上，状态文件会以仅当前用户可读写的权限写入。
+
+`language` 控制内置界面语言，默认是 `zh-CN`，也可以设置为 `en`。这个设置会影响标题栏、快捷键帮助、空状态、预览区提示、文件选择器和状态错误等程序自带文案；命令标题、分类别名、参数标签和说明仍由你的 TOML 命令配置决定。
 
 `remember_last_selection` 控制是否恢复上次选中的分类和命令；`remember_last_input` 控制是否按命令 ID 恢复上次输入的普通参数值和可选片段状态；`input_record_limit` 控制最多保留多少条命令输入记录，默认是 `20`。`secret = true` 的参数不会写入状态文件。把对应开关改为 `false` 或删除设置文件即可关闭。
 

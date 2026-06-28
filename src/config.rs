@@ -195,7 +195,10 @@ fn validate_id(kind: &str, id: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{load_settings_from_path, merge_file, toml_files_in_dir};
-    use crate::template::{Config, Source};
+    use crate::{
+        i18n::Language,
+        template::{Config, Source},
+    };
     use std::{
         fs,
         path::PathBuf,
@@ -310,6 +313,7 @@ template = "echo local"
 remember_last_selection = true
 remember_last_input = true
 input_record_limit = 7
+language = "en"
 "#,
         )
         .unwrap();
@@ -319,6 +323,7 @@ input_record_limit = 7
         assert!(settings.remember_last_selection);
         assert!(settings.remember_last_input);
         assert_eq!(settings.input_record_limit, 7);
+        assert_eq!(settings.language, Language::En);
 
         fs::remove_dir_all(dir).unwrap();
     }
