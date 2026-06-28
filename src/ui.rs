@@ -70,6 +70,9 @@ pub fn draw(f: &mut Frame, app: &App) {
     if app.show_help {
         draw_help_popup(f, f.area(), texts);
     }
+    if app.show_settings {
+        draw_settings_popup(f, app, f.area());
+    }
     if app.file_picker.is_some() {
         draw_file_picker_popup(f, app, f.area());
     }
@@ -193,6 +196,10 @@ fn draw_help_popup(f: &mut Frame, area: Rect, texts: &Texts) {
             Span::raw(texts.help_search),
         ]),
         Line::from(vec![
+            Span::styled("F2", key_style()),
+            Span::raw(texts.help_settings),
+        ]),
+        Line::from(vec![
             Span::styled("f", key_style()),
             Span::raw(texts.help_file_picker),
         ]),
@@ -235,6 +242,69 @@ fn key_style() -> Style {
         .fg(Color::Black)
         .bg(Color::LightYellow)
         .add_modifier(Modifier::BOLD)
+}
+
+fn draw_settings_popup(f: &mut Frame, app: &App, area: Rect) {
+    let texts = app.texts();
+    let settings = &app.config.settings;
+    let popup = centered_rect(area, 68, 12);
+    let rows = vec![
+        settings_item(texts.settings_language, settings.language.code()),
+        settings_item(
+            texts.settings_remember_selection,
+            bool_label(settings.remember_last_selection, texts),
+        ),
+        settings_item(
+            texts.settings_remember_input,
+            bool_label(settings.remember_last_input, texts),
+        ),
+        settings_item(
+            texts.settings_input_record_limit,
+            &settings.input_record_limit.to_string(),
+        ),
+    ];
+    let mut state = ListState::default();
+    state.select(Some(app.settings_idx));
+
+    f.render_widget(Clear, popup);
+    f.render_stateful_widget(
+        List::new(rows)
+            .highlight_symbol("› ")
+            .highlight_style(Style::default().bg(Color::DarkGray).fg(Color::White))
+            .block(
+                Block::default()
+                    .title(Span::styled(
+                        texts.settings_title,
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::BOLD),
+                    ))
+                    .title_bottom(Span::styled(
+                        texts.settings_help,
+                        Style::default().fg(Color::DarkGray),
+                    ))
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Yellow)),
+            ),
+        popup,
+        &mut state,
+    );
+}
+
+fn settings_item(label: &str, value: &str) -> ListItem<'static> {
+    ListItem::new(Line::from(vec![
+        Span::styled(label.to_string(), Style::default().fg(Color::White)),
+        Span::raw("  "),
+        Span::styled(value.to_string(), Style::default().fg(Color::LightGreen)),
+    ]))
+}
+
+fn bool_label(value: bool, texts: &Texts) -> &'static str {
+    if value {
+        texts.settings_on
+    } else {
+        texts.settings_off
+    }
 }
 
 fn draw_file_picker_popup(f: &mut Frame, app: &App, area: Rect) {

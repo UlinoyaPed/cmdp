@@ -25,6 +25,7 @@ pub struct Texts {
     pub help_enter: &'static str,
     pub help_space: &'static str,
     pub help_search: &'static str,
+    pub help_settings: &'static str,
     pub help_file_picker: &'static str,
     pub help_reset_defaults: &'static str,
     pub help_reload_config: &'static str,
@@ -60,6 +61,15 @@ pub struct Texts {
     pub read_dir_failed_prefix: &'static str,
     pub read_dir_entry_failed_prefix: &'static str,
     pub read_file_type_failed_prefix: &'static str,
+    pub settings_title: &'static str,
+    pub settings_help: &'static str,
+    pub settings_language: &'static str,
+    pub settings_remember_selection: &'static str,
+    pub settings_remember_input: &'static str,
+    pub settings_input_record_limit: &'static str,
+    pub settings_on: &'static str,
+    pub settings_off: &'static str,
+    pub save_settings_failed_prefix: &'static str,
 }
 
 pub const ZH_CN: Texts = Texts {
@@ -67,7 +77,7 @@ pub const ZH_CN: Texts = Texts {
     mode_search: "搜索命令",
     mode_normal: "普通",
     search_label: "/ 搜索",
-    header_shortcuts: " Tab/←→切换  f文件  F1/?帮助  Ctrl+y执行  q退出",
+    header_shortcuts: " Tab/←→切换  f文件  F2设置  F1/?帮助  Ctrl+y执行  q退出",
     preview_title: "预览  Ctrl+y 执行",
     execute_label: "执行",
     confirm_label: "确认",
@@ -80,6 +90,7 @@ pub const ZH_CN: Texts = Texts {
     help_enter: " 进入区域或编辑参数",
     help_space: " 切换选项或 choices 参数",
     help_search: " 搜索命令",
+    help_settings: " 打开设置",
     help_file_picker: " 为当前输入参数选择文件",
     help_reset_defaults: " 当前命令回到配置默认值",
     help_reload_config: " 重新加载配置",
@@ -115,6 +126,15 @@ pub const ZH_CN: Texts = Texts {
     read_dir_failed_prefix: "读取目录失败：",
     read_dir_entry_failed_prefix: "读取目录项失败：",
     read_file_type_failed_prefix: "读取文件类型失败：",
+    settings_title: " 设置 ",
+    settings_help: " ↑↓选择  Enter/Space/←→修改  Esc/F2关闭 ",
+    settings_language: "界面语言",
+    settings_remember_selection: "记住上次选择",
+    settings_remember_input: "记住上次输入",
+    settings_input_record_limit: "输入记录上限",
+    settings_on: "开",
+    settings_off: "关",
+    save_settings_failed_prefix: "保存设置失败：",
 };
 
 pub const EN: Texts = Texts {
@@ -122,7 +142,7 @@ pub const EN: Texts = Texts {
     mode_search: "Search",
     mode_normal: "Normal",
     search_label: "/ Search",
-    header_shortcuts: " Tab/←→ Focus  f File  F1/? Help  Ctrl+y Run  q Quit",
+    header_shortcuts: " Tab/←→ Focus  f File  F2 Settings  F1/? Help  Ctrl+y Run  q Quit",
     preview_title: "Preview  Ctrl+y Run",
     execute_label: "Run",
     confirm_label: "Confirm",
@@ -135,6 +155,7 @@ pub const EN: Texts = Texts {
     help_enter: " enter area or edit parameter",
     help_space: " toggle option or choices parameter",
     help_search: " search commands",
+    help_settings: " open settings",
     help_file_picker: " pick a file for the current parameter",
     help_reset_defaults: " reset current command to config defaults",
     help_reload_config: " reload configuration",
@@ -170,6 +191,15 @@ pub const EN: Texts = Texts {
     read_dir_failed_prefix: "Failed to read directory: ",
     read_dir_entry_failed_prefix: "Failed to read directory entry: ",
     read_file_type_failed_prefix: "Failed to read file type: ",
+    settings_title: " Settings ",
+    settings_help: " ↑↓ select  Enter/Space/←→ change  Esc/F2 close ",
+    settings_language: "Language",
+    settings_remember_selection: "Remember selection",
+    settings_remember_input: "Remember input",
+    settings_input_record_limit: "Input record limit",
+    settings_on: "on",
+    settings_off: "off",
+    save_settings_failed_prefix: "Failed to save settings: ",
 };
 
 impl Language {
@@ -192,6 +222,13 @@ impl Language {
         match self {
             Self::ZhCn => &ZH_CN,
             Self::En => &EN,
+        }
+    }
+
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::ZhCn => "zh-CN",
+            Self::En => "en",
         }
     }
 }

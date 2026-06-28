@@ -1,10 +1,12 @@
 use crate::{
     config,
-    i18n::Texts,
+    i18n::{Language, Texts},
     parser::{self, ParsedTemplate},
     preview, renderer, state,
     template::*,
 };
+
+const SETTINGS_ITEM_COUNT: usize = 4;
 use std::{
     collections::{HashMap, HashSet},
     fs,
@@ -71,6 +73,8 @@ pub struct App {
     pub error: Option<String>,
     pub danger_confirmation: Option<String>,
     pub show_help: bool,
+    pub show_settings: bool,
+    pub settings_idx: usize,
     pub file_picker: Option<FilePicker>,
 }
 
@@ -94,6 +98,8 @@ impl App {
             error: None,
             danger_confirmation: None,
             show_help: false,
+            show_settings: false,
+            settings_idx: 0,
             file_picker: None,
         };
         app.reset_form();
@@ -111,6 +117,7 @@ impl App {
                 self.edit_cursor = 0;
                 self.search_editing = false;
                 self.search_query.clear();
+                self.show_settings = false;
                 self.file_picker = None;
                 self.error = None;
                 self.reset_form();
@@ -276,9 +283,46 @@ impl App {
         self.show_help = false;
     }
 
+    pub fn toggle_settings(&mut self) {
+        if self.show_settings {
+            self.close_settings();
+        } else {
+            self.open_settings();
+        }
+    }
+
+    pub fn open_settings(&mut self) {
+        self.error = None;
+        self.danger_confirmation = None;
+        self.show_help = false;
+        self.file_picker = None;
+        self.editing = false;
+        self.search_editing = false;
+        self.show_settings = true;
+        self.settings_idx = self.settings_idx.min(SETTINGS_ITEM_COUNT - 1);
+    }
+
+    pub fn close_settings(&mut self) {
+        self.show_settings = false;
+    }
+
+    pub fn move_settings(&mut self, down: bool) {
+        self.settings_idx = step(
+            self.settings_idx,
+            SETTINGS_ITEM_COUNT,
+            if down { 1 } else { -1 },
+        );
+    }
+
+    pub fn adjust_setting(&mut self, forward: bool) {
+        adjust_setting_value(&mut self.config.settings, self.settings_idx, forward);
+        self.persist_settings();
+    }
+
     pub fn open_file_picker(&mut self) {
         self.error = None;
         self.danger_confirmation = None;
+        self.show_settings = false;
         let Some(FormItem::Param { name, choices, .. }) =
             self.form_items().get(self.form_idx).cloned()
         else {
@@ -573,6 +617,7 @@ impl App {
         self.error = None;
         self.focus = Focus::Commands;
         self.search_editing = true;
+        self.show_settings = false;
         self.file_picker = None;
         self.command_idx = 0;
         self.sync_category_to_current_command();
@@ -863,6 +908,17 @@ impl App {
         state.input_records.truncate(limit);
     }
 
+    fn persist_settings(&mut self) {
+        if let Err(error) = config::save_settings(&self.config.settings) {
+            self.error = Some(format!(
+                "{}{error}",
+                self.texts().save_settings_failed_prefix
+            ));
+        } else {
+            self.error = None;
+        }
+    }
+
     fn matches_search(&self, id: &str, cmd: &Command, query: &str) -> bool {
         if command_id_matches_query(id, query) {
             return true;
@@ -1051,6 +1107,24 @@ fn sorted_enabled(enabled: &HashSet<String>) -> Vec<String> {
     let mut enabled: Vec<_> = enabled.iter().cloned().collect();
     enabled.sort();
     enabled
+}
+
+fn adjust_setting_value(settings: &mut Settings, idx: usize, forward: bool) {
+    match idx {
+        0 => {
+            settings.language = match settings.language {
+                Language::ZhCn => Language::En,
+                Language::En => Language::ZhCn,
+            };
+        }
+        1 => settings.remember_last_selection = !settings.remember_last_selection,
+        2 => settings.remember_last_input = !settings.remember_last_input,
+        3 if forward => {
+            settings.input_record_limit = settings.input_record_limit.saturating_add(1).min(999);
+        }
+        3 => settings.input_record_limit = settings.input_record_limit.saturating_sub(1).max(1),
+        _ => {}
+    }
 }
 
 fn byte_index(value: &str, char_index: usize) -> usize {
@@ -1452,6 +1526,26 @@ mod tests {
 
         assert_eq!(state.input_records.len(), 1);
         assert_eq!(state.input_records[0].command_id, "first");
+    }
+
+    #[test]
+    fn setting_adjustment_updates_selected_setting() {
+        let mut settings = Settings::default();
+
+        adjust_setting_value(&mut settings, 0, true);
+        assert_eq!(settings.language, Language::En);
+
+        adjust_setting_value(&mut settings, 1, true);
+        assert!(settings.remember_last_selection);
+
+        adjust_setting_value(&mut settings, 2, true);
+        assert!(settings.remember_last_input);
+
+        adjust_setting_value(&mut settings, 3, true);
+        assert_eq!(settings.input_record_limit, DEFAULT_INPUT_RECORD_LIMIT + 1);
+
+        adjust_setting_value(&mut settings, 3, false);
+        assert_eq!(settings.input_record_limit, DEFAULT_INPUT_RECORD_LIMIT);
     }
 
     fn test_config() -> Config {

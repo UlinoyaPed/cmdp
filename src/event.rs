@@ -19,6 +19,23 @@ pub fn handle_key(app: &mut App, key: KeyEvent) {
         return;
     }
 
+    if app.show_settings {
+        match key.code {
+            KeyCode::Esc | KeyCode::F(2) => app.close_settings(),
+            KeyCode::Up | KeyCode::Char('k') => app.move_settings(false),
+            KeyCode::Down | KeyCode::Char('j') => app.move_settings(true),
+            KeyCode::Left => app.adjust_setting(false),
+            KeyCode::Right | KeyCode::Enter | KeyCode::Char(' ') => app.adjust_setting(true),
+            _ => {}
+        }
+        return;
+    }
+
+    if key.code == KeyCode::F(2) {
+        app.toggle_settings();
+        return;
+    }
+
     if app.file_picker.is_some() {
         match key.code {
             KeyCode::Esc | KeyCode::Char('f') => app.close_file_picker(),
@@ -85,7 +102,7 @@ pub fn handle_key(app: &mut App, key: KeyEvent) {
 }
 
 pub fn handle_mouse(app: &mut App, mouse: MouseEvent, screen: Rect) {
-    if app.show_help || app.file_picker.is_some() {
+    if app.show_help || app.show_settings || app.file_picker.is_some() {
         return;
     }
 

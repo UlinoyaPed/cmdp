@@ -142,6 +142,12 @@ fn load_settings() -> Result<Settings> {
     load_settings_from_path(&settings_path()?)
 }
 
+pub fn save_settings(settings: &Settings) -> Result<()> {
+    let dir = global_dir()?;
+    ensure_dir(&dir)?;
+    save_settings_to_path(&dir.join("settings.toml"), settings)
+}
+
 fn load_settings_from_path(path: &Path) -> Result<Settings> {
     if !path.exists() {
         return Ok(Settings::default());
@@ -153,6 +159,25 @@ fn load_settings_from_path(path: &Path) -> Result<Settings> {
     }
 
     toml::from_str(&text).with_context(|| format!("parse {}", path.display()))
+}
+
+fn save_settings_to_path(path: &Path, settings: &Settings) -> Result<()> {
+    let text = settings_to_toml(settings);
+    fs::write(path, text).with_context(|| format!("write {}", path.display()))
+}
+
+fn settings_to_toml(settings: &Settings) -> String {
+    format!(
+        r#"language = "{}"
+remember_last_selection = {}
+remember_last_input = {}
+input_record_limit = {}
+"#,
+        settings.language.code(),
+        settings.remember_last_selection,
+        settings.remember_last_input,
+        settings.input_record_limit
+    )
 }
 
 fn toml_files_in_dir(dir: &Path) -> Result<Vec<PathBuf>> {
@@ -247,11 +272,12 @@ fn validate_id(kind: &str, id: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        ensure_global_files_in_dir, load_settings_from_path, merge_file, toml_files_in_dir,
+        ensure_global_files_in_dir, load_settings_from_path, merge_file, save_settings_to_path,
+        toml_files_in_dir,
     };
     use crate::{
         i18n::Language,
-        template::{Config, Source},
+        template::{Config, Settings, Source},
     };
     use std::{
         fs,
@@ -378,6 +404,33 @@ language = "en"
         assert!(settings.remember_last_input);
         assert_eq!(settings.input_record_limit, 7);
         assert_eq!(settings.language, Language::En);
+
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn settings_are_saved_to_dedicated_file() {
+        let dir = temp_config_dir();
+        fs::create_dir_all(&dir).unwrap();
+        let settings_path = dir.join("settings.toml");
+
+        save_settings_to_path(
+            &settings_path,
+            &Settings {
+                language: Language::En,
+                remember_last_selection: true,
+                remember_last_input: true,
+                input_record_limit: 3,
+            },
+        )
+        .unwrap();
+
+        let loaded = load_settings_from_path(&settings_path).unwrap();
+
+        assert_eq!(loaded.language, Language::En);
+        assert!(loaded.remember_last_selection);
+        assert!(loaded.remember_last_input);
+        assert_eq!(loaded.input_record_limit, 3);
 
         fs::remove_dir_all(dir).unwrap();
     }
