@@ -1,6 +1,6 @@
 [package]
 name = "cmdp"
-version = "0.2.8"
+version = "0.3.1"
 edition = "2024"
 description = "A terminal UI for selecting and executing command templates."
 license = "GPL-3.0-only"
