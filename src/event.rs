@@ -354,6 +354,9 @@ fn scroll_at(app: &mut App, column: u16, row: u16, screen: Rect, down: bool) {
     } else if contains(areas.form, column, row) {
         app.focus = Focus::Form;
         app.move_sel(down);
+    } else if contains(areas.preview, column, row) {
+        let (width, height) = ui::preview_viewport_size(areas.preview);
+        app.scroll_preview(down, width, height);
     }
 }
 
@@ -388,9 +391,10 @@ mod tests {
     use super::*;
     use crate::{
         app::{FilePicker, FilePickerEntry},
-        template::Config,
+        template::{Category, Command, Config, Settings, Source},
     };
     use crossterm::event::{KeyEventKind, KeyEventState, KeyModifiers};
+    use indexmap::IndexMap;
     use std::path::PathBuf;
 
     #[test]
@@ -520,6 +524,58 @@ mod tests {
         assert_eq!(property_editor.selected, 0);
         assert!(property_editor.editing);
         assert_eq!(property_editor.edit_buffer, before);
+    }
+
+    #[test]
+    fn mouse_wheel_scrolls_preview_when_over_preview_area() {
+        let mut app = App::new(long_preview_config());
+        let screen = Rect::new(0, 0, 40, 24);
+        let preview = ui::areas(screen).preview;
+
+        handle_mouse(
+            &mut app,
+            MouseEvent {
+                kind: MouseEventKind::ScrollDown,
+                column: preview.x + 2,
+                row: preview.y + 1,
+                modifiers: KeyModifiers::NONE,
+            },
+            screen,
+        );
+
+        assert_eq!(app.preview_scroll, 1);
+        assert_eq!(app.focus, Focus::Categories);
+    }
+
+    fn long_preview_config() -> Config {
+        let mut categories = IndexMap::new();
+        categories.insert(
+            "dev".to_string(),
+            Category {
+                alias: Some("开发".to_string()),
+                source: Source::Global,
+            },
+        );
+        let mut commands = IndexMap::new();
+        commands.insert(
+            "long".to_string(),
+            Command {
+                category: "dev".to_string(),
+                title: Some("长命令".to_string()),
+                description: None,
+                danger: false,
+                template: format!("echo {}", "1234567890 ".repeat(32)),
+                params: vec![],
+                options: vec![],
+                source: Source::Global,
+            },
+        );
+        Config {
+            settings: Settings::default(),
+            categories,
+            commands,
+            sources: vec![],
+        }
     }
 
     #[test]

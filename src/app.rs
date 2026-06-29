@@ -169,6 +169,7 @@ pub struct App {
     pub should_quit: bool,
     pub output: Option<String>,
     pub error: Option<String>,
+    pub preview_scroll: u16,
     pub danger_confirmation: Option<String>,
     pub show_help: bool,
     pub show_settings: bool,
@@ -195,6 +196,7 @@ impl App {
             should_quit: false,
             output: None,
             error: None,
+            preview_scroll: 0,
             danger_confirmation: None,
             show_help: false,
             show_settings: false,
@@ -221,6 +223,7 @@ impl App {
                 self.config_editor = None;
                 self.file_picker = None;
                 self.error = None;
+                self.reset_preview_scroll();
                 self.reset_form();
                 self.restore_last_selection();
                 self.danger_confirmation = None;
@@ -277,6 +280,7 @@ impl App {
     pub fn reset_form(&mut self) {
         self.reset_form_to_defaults();
         self.restore_current_input();
+        self.reset_preview_scroll();
     }
 
     pub fn reset_current_form_to_defaults(&mut self) {
@@ -287,6 +291,7 @@ impl App {
         self.edit_cursor = 0;
         self.reset_form_to_defaults();
         self.remove_current_input_record();
+        self.reset_preview_scroll();
     }
 
     fn reset_form_to_defaults(&mut self) {
@@ -1198,10 +1203,12 @@ impl App {
                 Some(FormItem::Param { name, choices, .. }) => {
                     cycle_choice(&mut self.values, &name, &choices);
                     self.persist_current_input();
+                    self.reset_preview_scroll();
                 }
                 Some(FormItem::Option { id, .. }) => {
                     self.toggle_option(&id);
                     self.persist_current_input();
+                    self.reset_preview_scroll();
                 }
                 None => {}
             },
@@ -1217,12 +1224,14 @@ impl App {
             Some(FormItem::Option { id, .. }) if self.focus == Focus::Form => {
                 self.toggle_option(&id);
                 self.persist_current_input();
+                self.reset_preview_scroll();
             }
             Some(FormItem::Param { name, choices, .. })
                 if self.focus == Focus::Form && !choices.is_empty() =>
             {
                 cycle_choice(&mut self.values, &name, &choices);
                 self.persist_current_input();
+                self.reset_preview_scroll();
             }
             _ => {}
         }
@@ -1238,6 +1247,7 @@ impl App {
         self.error = None;
         self.danger_confirmation = None;
         self.persist_current_input();
+        self.reset_preview_scroll();
     }
 
     pub fn cancel_edit(&mut self) {
@@ -1319,6 +1329,42 @@ impl App {
             (Some((_, c)), Some(r)) => preview::preview(c, &r, self.texts()),
             _ => self.texts().no_available_command.into(),
         }
+    }
+
+    pub fn reset_preview_scroll(&mut self) {
+        self.preview_scroll = 0;
+    }
+
+    pub fn scroll_preview(&mut self, down: bool, viewport_width: u16, viewport_height: u16) {
+        let max_scroll = self.preview_scroll_max(viewport_width, viewport_height);
+        let current = self.preview_scroll.min(max_scroll);
+        self.preview_scroll = if down {
+            current.saturating_add(1).min(max_scroll)
+        } else {
+            current.saturating_sub(1)
+        };
+    }
+
+    pub fn preview_scroll_offset(&self, viewport_width: u16, viewport_height: u16) -> u16 {
+        self.preview_scroll
+            .min(self.preview_scroll_max(viewport_width, viewport_height))
+    }
+
+    pub fn preview_scroll_max(&self, viewport_width: u16, viewport_height: u16) -> u16 {
+        let content_lines = self.preview_display_line_count(viewport_width);
+        let visible_lines = viewport_height.max(1) as usize;
+        content_lines
+            .saturating_sub(visible_lines)
+            .min(u16::MAX as usize) as u16
+    }
+
+    fn preview_display_line_count(&self, viewport_width: u16) -> usize {
+        let width = viewport_width.max(1) as usize;
+        let mut lines = 0;
+        if let Some(error) = &self.error {
+            lines += wrapped_text_line_count(error, width);
+        }
+        lines + wrapped_text_line_count(&self.preview_text(), width)
     }
 
     pub fn begin_search(&mut self) {
@@ -2441,6 +2487,18 @@ fn normalize_command_id_fuzzy_text(value: &str) -> String {
         .collect()
 }
 
+fn wrapped_text_line_count(text: &str, width: usize) -> usize {
+    if text.is_empty() {
+        return 1;
+    }
+    text.split('\n')
+        .map(|line| {
+            let chars = line.chars().count().max(1);
+            chars.div_ceil(width)
+        })
+        .sum()
+}
+
 fn fuzzy_matches(haystack: &str, needle: &str) -> bool {
     let mut needle = needle.chars();
     let Some(mut expected) = needle.next() else {
@@ -2609,6 +2667,23 @@ mod tests {
 
         assert!(preview.contains("No commands available"));
         assert!(preview.contains("~/.config/cmdp/"));
+    }
+
+    #[test]
+    fn preview_scroll_max_counts_wrapped_command_lines() {
+        let mut config = test_config();
+        config.commands.get_mut("find_large").unwrap().template =
+            "echo 1234567890 1234567890 1234567890".to_string();
+        let mut app = App::new(config);
+        app.category_idx = 0;
+        app.command_idx = 0;
+
+        assert_eq!(app.preview_scroll_max(10, 1), 3);
+
+        app.scroll_preview(true, 10, 1);
+        assert_eq!(app.preview_scroll, 1);
+        app.scroll_preview(false, 10, 1);
+        assert_eq!(app.preview_scroll, 0);
     }
 
     #[test]

@@ -55,8 +55,13 @@ pub fn draw(f: &mut Frame, app: &App) {
     draw_form(f, app, areas.form);
 
     let preview = app.preview_text();
+    let preview_viewport = preview_viewport_size(areas.preview);
     f.render_widget(
         Paragraph::new(preview_lines(texts, &preview, app.error.as_deref()))
+            .scroll((
+                app.preview_scroll_offset(preview_viewport.0, preview_viewport.1),
+                0,
+            ))
             .wrap(Wrap { trim: false })
             .block(
                 block(texts.preview_title, false).border_style(Style::default().fg(Color::Blue)),
@@ -728,6 +733,10 @@ fn preview_line_style(texts: &Texts, line: &str, preview_is_hint: bool) -> Style
     } else {
         Style::default().fg(Color::White)
     }
+}
+
+pub fn preview_viewport_size(area: Rect) -> (u16, u16) {
+    (area.width.saturating_sub(2), area.height.saturating_sub(2))
 }
 
 fn draw_categories(f: &mut Frame, app: &App, area: Rect) {
