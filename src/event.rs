@@ -278,8 +278,16 @@ fn handle_config_editor_mouse(app: &mut App, mouse: MouseEvent, screen: Rect) {
                 app.select_config_editor_field(idx, true);
             }
         }
-        MouseEventKind::ScrollUp => app.move_config_editor(false),
-        MouseEventKind::ScrollDown => app.move_config_editor(true),
+        MouseEventKind::ScrollUp
+            if contains(popup, mouse.column, mouse.row) && !config_editor_is_editing(app) =>
+        {
+            app.move_config_editor(false);
+        }
+        MouseEventKind::ScrollDown
+            if contains(popup, mouse.column, mouse.row) && !config_editor_is_editing(app) =>
+        {
+            app.move_config_editor(true);
+        }
         _ => {}
     }
 }
@@ -292,10 +300,33 @@ fn handle_config_template_property_mouse(app: &mut App, mouse: MouseEvent, scree
                 app.select_config_template_property(idx, true);
             }
         }
-        MouseEventKind::ScrollUp => app.move_config_template_property(false),
-        MouseEventKind::ScrollDown => app.move_config_template_property(true),
+        MouseEventKind::ScrollUp
+            if contains(popup, mouse.column, mouse.row)
+                && !config_template_property_is_editing(app) =>
+        {
+            app.move_config_template_property(false);
+        }
+        MouseEventKind::ScrollDown
+            if contains(popup, mouse.column, mouse.row)
+                && !config_template_property_is_editing(app) =>
+        {
+            app.move_config_template_property(true);
+        }
         _ => {}
     }
+}
+
+fn config_editor_is_editing(app: &App) -> bool {
+    app.config_editor
+        .as_ref()
+        .is_some_and(|editor| editor.editing)
+}
+
+fn config_template_property_is_editing(app: &App) -> bool {
+    app.config_editor
+        .as_ref()
+        .and_then(|editor| editor.template_property_editor.as_ref())
+        .is_some_and(|property_editor| property_editor.editing)
 }
 
 fn handle_file_picker_mouse(app: &mut App, mouse: MouseEvent, screen: Rect) {
@@ -386,6 +417,42 @@ mod tests {
     }
 
     #[test]
+    fn mouse_wheel_does_not_move_config_editor_selection_while_editing() {
+        let mut app = App::new(Config::default());
+        app.open_config_editor();
+        let screen = Rect::new(0, 0, 100, 30);
+        let popup = ui::config_editor_popup_area(screen);
+
+        handle_mouse(
+            &mut app,
+            MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: popup.x + 2,
+                row: popup.y + 1,
+                modifiers: KeyModifiers::NONE,
+            },
+            screen,
+        );
+        let before = app.config_editor.as_ref().unwrap().edit_buffer.clone();
+
+        handle_mouse(
+            &mut app,
+            MouseEvent {
+                kind: MouseEventKind::ScrollDown,
+                column: popup.x + 2,
+                row: popup.y + 1,
+                modifiers: KeyModifiers::NONE,
+            },
+            screen,
+        );
+
+        let editor = app.config_editor.as_ref().unwrap();
+        assert_eq!(editor.selected, 0);
+        assert!(editor.editing);
+        assert_eq!(editor.edit_buffer, before);
+    }
+
+    #[test]
     fn mouse_click_opens_config_template_property_editor() {
         let mut app = App::new(Config::default());
         app.open_config_editor();
@@ -412,6 +479,47 @@ mod tests {
                 .map(|property_editor| property_editor.part_index),
             Some(0)
         );
+    }
+
+    #[test]
+    fn mouse_wheel_does_not_move_template_property_selection_while_editing() {
+        let mut app = App::new(Config::default());
+        app.open_config_editor();
+        app.open_config_template_property_editor(0);
+        app.begin_config_template_property_edit();
+        let screen = Rect::new(0, 0, 100, 30);
+        let popup = ui::config_template_property_popup_area(screen);
+        let before = app
+            .config_editor
+            .as_ref()
+            .unwrap()
+            .template_property_editor
+            .as_ref()
+            .unwrap()
+            .edit_buffer
+            .clone();
+
+        handle_mouse(
+            &mut app,
+            MouseEvent {
+                kind: MouseEventKind::ScrollDown,
+                column: popup.x + 2,
+                row: popup.y + 1,
+                modifiers: KeyModifiers::NONE,
+            },
+            screen,
+        );
+
+        let property_editor = app
+            .config_editor
+            .as_ref()
+            .unwrap()
+            .template_property_editor
+            .as_ref()
+            .unwrap();
+        assert_eq!(property_editor.selected, 0);
+        assert!(property_editor.editing);
+        assert_eq!(property_editor.edit_buffer, before);
     }
 
     #[test]
