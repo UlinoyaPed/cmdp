@@ -20,7 +20,7 @@ sudo dnf install <<"{{package}}">>
 '''
 
 params = [
-  { name = "package", label = "软件包名", placeholder = "git" },
+  { name = "package", label = "软件包名", placeholder = "git", help = "填写 dnf 能识别的包名，例如 ripgrep；不是应用商店里的显示名" },
 ]
 
 [commands.dnf_remove]
@@ -33,7 +33,7 @@ sudo dnf remove <<"{{package}}">>
 '''
 
 params = [
-  { name = "package", label = "软件包名", placeholder = "package-name" },
+  { name = "package", label = "软件包名", placeholder = "package-name", help = "将被传给 dnf remove，确认是要卸载的包名" },
 ]
 
 [commands.dnf_search]
@@ -46,5 +46,5 @@ dnf search <<"{{keyword}}">>
 '''
 
 params = [
-  { name = "keyword", label = "关键词", placeholder = "telegram" },
+  { name = "keyword", label = "关键词", placeholder = "telegram", help = "用于 dnf search，会匹配包名和描述" },
 ]

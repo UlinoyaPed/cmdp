@@ -22,30 +22,30 @@ lsblk -o NAME,MODEL,SIZE,TYPE,FSTYPE,LABEL,MOUNTPOINTS
 [commands.disc_media_info]
 category = "disc"
 title = "查看光盘信息"
-description = "查看光驱中的光盘目录和介质信息"
+description = "查看光驱中的光盘目录、容量、是否可写、是否已封盘"
 danger = false
 template = '''
 xorriso -outdev <<"{{device}}">> -toc
 '''
 
 params = [
-  { name = "device", label = "光驱设备", default = "/dev/sr0", placeholder = "/dev/sr0" },
+  { name = "device", label = "光驱设备", default = "/dev/sr0", placeholder = "/dev/sr0", help = "通常是 /dev/sr0；可先运行查看光驱设备确认" },
 ]
-
 
 [commands.disc_dir_summary]
 category = "disc"
 title = "统计待刻录目录"
-description = "统计目录大小、文件数、子目录数"
+description = "统计目录大小、文件数、子目录数，用于刻录前估算容量"
 danger = false
 template = '''
-echo "目录大小:" && du -sh <<"{{path}}">> && echo "文件数:" && find <<"{{path}}">> -type f | wc -l && echo "目录数:" && find <<"{{path}}">> -type d | wc -l
+echo "目录大小:" && du -sh -- <<"{{path}}">>
+echo "文件数:" && find -- <<"{{path}}">> -type f | wc -l
+echo "目录数:" && find -- <<"{{path}}">> -type d | wc -l
 '''
 
 params = [
-  { name = "path", label = "目录路径", default = ".", placeholder = "." },
+  { name = "path", label = "目录路径", default = ".", placeholder = ".", help = "待统计目录；用于刻录前估算容量和文件数量" },
 ]
-
 
 [commands.disc_make_iso]
 category = "disc"
@@ -57,11 +57,10 @@ xorriso -as mkisofs -iso-level 3 -R -J -joliet-long -V <<"{{label}}">> -o <<"{{o
 '''
 
 params = [
-  { name = "source", label = "源目录", default = ".", placeholder = "." },
-  { name = "label", label = "光盘卷标", default = "BACKUP_DVD", placeholder = "BACKUP_202606" },
-  { name = "output", label = "输出 ISO", placeholder = "../BACKUP_202606.iso" },
+  { name = "source", label = "源目录", default = ".", placeholder = ".", help = "要打包进 ISO 的目录；填 . 表示当前目录" },
+  { name = "label", label = "光盘卷标", default = "BACKUP_DVD", placeholder = "BACKUP_202606", help = "ISO 卷标，建议用大写字母数字和下划线，避免空格" },
+  { name = "output", label = "输出 ISO", placeholder = "../BACKUP_202606.iso", help = "生成的 ISO 文件路径，目标目录需要存在且可写" },
 ]
-
 
 [commands.disc_iso_size]
 category = "disc"
@@ -69,28 +68,30 @@ title = "查看 ISO 大小"
 description = "查看 ISO 文件大小，确认是否超过 DVD 容量"
 danger = false
 template = '''
-ls -lh <<"{{iso}}">> && du -h <<"{{iso}}">>
+ls -lh -- <<"{{iso}}">>
+du -h -- <<"{{iso}}">>
+stat -c '字节数: %s' -- <<"{{iso}}">>
 '''
 
 params = [
-  { name = "iso", label = "ISO 文件", placeholder = "backup.iso" },
+  { name = "iso", label = "ISO 文件", placeholder = "backup.iso", help = "ISO 文件路径；用于挂载、刻录或校验" },
 ]
-
 
 [commands.disc_mount_iso]
 category = "disc"
-title = "挂载 ISO 验证"
+title = "挂载 ISO 检查"
 description = "只读挂载 ISO，检查里面的文件"
 danger = false
 template = '''
-sudo mkdir -p <<"{{mountpoint}}">> && sudo mount -o loop,ro <<"{{iso}}">> <<"{{mountpoint}}">> && ls -la <<"{{mountpoint}}">>
+sudo mkdir -p <<"{{mountpoint}}">>
+sudo mount -o loop,ro <<"{{iso}}">> <<"{{mountpoint}}">>
+ls -la <<"{{mountpoint}}">>
 '''
 
 params = [
-  { name = "iso", label = "ISO 文件", placeholder = "backup.iso" },
-  { name = "mountpoint", label = "挂载目录", default = "/mnt/iso", placeholder = "/mnt/iso" },
+  { name = "iso", label = "ISO 文件", placeholder = "backup.iso", help = "ISO 文件路径；用于挂载、刻录或校验" },
+  { name = "mountpoint", label = "挂载目录", default = "/mnt/iso", placeholder = "/mnt/iso", help = "挂载点需要 sudo 权限；部分命令会先创建目录" },
 ]
-
 
 [commands.disc_umount_iso]
 category = "disc"
@@ -102,59 +103,133 @@ sudo umount <<"{{mountpoint}}">>
 '''
 
 params = [
-  { name = "mountpoint", label = "挂载目录", default = "/mnt/iso", placeholder = "/mnt/iso" },
+  { name = "mountpoint", label = "挂载目录", default = "/mnt/iso", placeholder = "/mnt/iso", help = "挂载点需要 sudo 权限；部分命令会先创建目录" },
 ]
-
 
 [commands.disc_sha256]
 category = "disc"
-title = "计算校验值"
-description = "计算 ISO 或文件的 SHA256 校验值"
+title = "计算文件 SHA256"
+description = "计算 ISO 或普通文件的 SHA256 校验值"
 danger = false
 template = '''
-sha256sum <<"{{file}}">>
+sha256sum -- <<"{{file}}">>
 '''
 
 params = [
-  { name = "file", label = "文件路径", placeholder = "backup.iso" },
+  { name = "file", label = "文件路径", placeholder = "backup.iso", help = "要计算 SHA256 的文件路径" },
 ]
-
 
 [commands.disc_burn_iso]
 category = "disc"
 title = "刻录 ISO 到 DVD"
-description = "使用 xorriso 将 ISO 刻录到光盘"
+description = "使用 xorriso 将 ISO 低速刻录到光盘；默认 2d，FIFO 默认 32m"
 danger = true
 template = '''
-xorriso -as cdrecord -v dev={{device}} [[speed:speed={{speed}}]] [[eject:-eject]] <<"{{iso}}">>
+xorriso -as cdrecord -v dev={{device}} [[speed:speed={{speed}}]] [[fifo:fs={{fifo}}]] [[eject:-eject]] <<"{{iso}}">>
 '''
 
 params = [
-  { name = "device", label = "光驱设备", default = "/dev/sr0", placeholder = "/dev/sr0" },
-  { name = "speed", label = "刻录速度", default = "4", placeholder = "4 / 8 / 16" },
-  { name = "iso", label = "ISO 文件", placeholder = "backup.iso" },
+  { name = "device", label = "光驱设备", default = "/dev/sr0", placeholder = "/dev/sr0", help = "通常是 /dev/sr0；可先运行查看光驱设备确认" },
+  { name = "speed", label = "刻录速度", default = "2d", placeholder = "min / 2d / 2.4d / 4d", choices = ["min", "2d", "2.4d", "4d", "8d", "16d"], help = "xorriso cdrecord 速度值；越低越稳但越慢" },
+  { name = "fifo", label = "FIFO 缓冲区", default = "32m", placeholder = "4m / 32m / 64m", choices = ["4m", "16m", "32m", "64m"], help = "xorriso 写入缓冲区；内存足够时 32m 或 64m 更稳" },
+  { name = "iso", label = "ISO 文件", placeholder = "backup.iso", help = "ISO 文件路径；用于挂载、刻录或校验" },
 ]
 
 options = [
   { id = "speed", label = "指定刻录速度", default_enabled = true },
-  { id = "eject", label = "刻录后弹出", default_enabled = true },
+  { id = "fifo", label = "指定 FIFO 缓冲区", default_enabled = true },
+  { id = "eject", label = "刻录后弹出", default_enabled = false },
 ]
 
+[commands.disc_burn_iso_and_verify]
+category = "disc"
+title = "刻录 ISO 并逐字节校验"
+description = "先低速刻录 ISO，再用 cmp 按 ISO 大小逐字节比较光盘内容"
+danger = true
+template = '''
+xorriso -as cdrecord -v dev={{device}} speed={{speed}} fs={{fifo}} <<"{{iso}}">>
+sync
+sudo umount <<"{{device}}">> 2>/dev/null || true
+ISO_SIZE=$(stat -c '%s' -- <<"{{iso}}">>)
+echo "ISO 字节数: ${ISO_SIZE}"
+echo "开始逐字节校验 ISO 与光盘..."
+if sudo cmp -n "$ISO_SIZE" <<"{{iso}}">> <<"{{device}}">>; then
+  echo "校验通过：光盘内容与 ISO 一致"
+else
+  echo "校验失败：光盘内容与 ISO 不一致，或光盘读取出错"
+  exit 1
+fi
+'''
+
+params = [
+  { name = "device", label = "光驱设备", default = "/dev/sr0", placeholder = "/dev/sr0", help = "通常是 /dev/sr0；可先运行查看光驱设备确认" },
+  { name = "speed", label = "刻录速度", default = "2d", placeholder = "min / 2d / 2.4d / 4d", choices = ["min", "2d", "2.4d", "4d", "8d", "16d"], help = "xorriso cdrecord 速度值；越低越稳但越慢" },
+  { name = "fifo", label = "FIFO 缓冲区", default = "32m", placeholder = "4m / 32m / 64m", choices = ["4m", "16m", "32m", "64m"], help = "xorriso 写入缓冲区；内存足够时 32m 或 64m 更稳" },
+  { name = "iso", label = "ISO 文件", placeholder = "backup.iso", help = "ISO 文件路径；用于挂载、刻录或校验" },
+]
+
+[commands.disc_verify_iso_vs_dvd]
+category = "disc"
+title = "校验 ISO 与光盘一致"
+description = "不重新刻录，只按 ISO 文件大小逐字节比较 ISO 与光盘设备"
+danger = false
+template = '''
+sudo umount <<"{{device}}">> 2>/dev/null || true
+ISO_SIZE=$(stat -c '%s' -- <<"{{iso}}">>)
+echo "ISO 字节数: ${ISO_SIZE}"
+echo "开始逐字节校验 ISO 与光盘..."
+if sudo cmp -n "$ISO_SIZE" <<"{{iso}}">> <<"{{device}}">>; then
+  echo "校验通过：光盘内容与 ISO 一致"
+else
+  echo "校验失败：光盘内容与 ISO 不一致，或光盘读取出错"
+  exit 1
+fi
+'''
+
+params = [
+  { name = "device", label = "光驱设备", default = "/dev/sr0", placeholder = "/dev/sr0", help = "通常是 /dev/sr0；可先运行查看光驱设备确认" },
+  { name = "iso", label = "ISO 文件", placeholder = "backup.iso", help = "ISO 文件路径；用于挂载、刻录或校验" },
+]
 
 [commands.disc_verify_after_burn]
 category = "disc"
 title = "挂载光盘检查"
-description = "挂载刻录后的光盘并查看内容"
+description = "只读挂载刻录后的光盘并查看内容"
 danger = false
 template = '''
-sudo mkdir -p <<"{{mountpoint}}">> && sudo mount -o ro <<"{{device}}">> <<"{{mountpoint}}">> && ls -la <<"{{mountpoint}}">>
+sudo mkdir -p <<"{{mountpoint}}">>
+sudo mount -o ro <<"{{device}}">> <<"{{mountpoint}}">>
+ls -la <<"{{mountpoint}}">>
 '''
 
 params = [
-  { name = "device", label = "光驱设备", default = "/dev/sr0", placeholder = "/dev/sr0" },
-  { name = "mountpoint", label = "挂载目录", default = "/mnt/dvd", placeholder = "/mnt/dvd" },
+  { name = "device", label = "光驱设备", default = "/dev/sr0", placeholder = "/dev/sr0", help = "通常是 /dev/sr0；可先运行查看光驱设备确认" },
+  { name = "mountpoint", label = "挂载目录", default = "/mnt/dvd", placeholder = "/mnt/dvd", help = "光盘挂载目录；挂载和卸载通常需要 sudo 权限" },
 ]
 
+[commands.disc_diff_iso_dvd_files]
+category = "disc"
+title = "对比 ISO 和光盘文件"
+description = "同时挂载 ISO 和光盘，用 diff -qr 做文件层面对比"
+danger = false
+template = '''
+sudo mkdir -p <<"{{iso_mount}}">> <<"{{dvd_mount}}">>
+sudo mount -o loop,ro <<"{{iso}}">> <<"{{iso_mount}}">>
+sudo mount -o ro <<"{{device}}">> <<"{{dvd_mount}}">>
+if diff -qr <<"{{iso_mount}}">> <<"{{dvd_mount}}">>; then
+  echo "文件层面对比通过：ISO 与光盘文件一致"
+else
+  echo "文件层面对比失败：发现差异"
+  exit 1
+fi
+'''
+
+params = [
+  { name = "iso", label = "ISO 文件", placeholder = "backup.iso", help = "ISO 文件路径；用于挂载、刻录或校验" },
+  { name = "device", label = "光驱设备", default = "/dev/sr0", placeholder = "/dev/sr0", help = "通常是 /dev/sr0；可先运行查看光驱设备确认" },
+  { name = "iso_mount", label = "ISO 挂载目录", default = "/mnt/iso", placeholder = "/mnt/iso", help = "ISO 的临时挂载点；命令会尝试创建该目录" },
+  { name = "dvd_mount", label = "光盘挂载目录", default = "/mnt/dvd", placeholder = "/mnt/dvd", help = "光盘的临时挂载点；命令会尝试创建该目录" },
+]
 
 [commands.disc_umount_dvd]
 category = "disc"
@@ -166,9 +241,23 @@ sudo umount <<"{{mountpoint}}">>
 '''
 
 params = [
-  { name = "mountpoint", label = "挂载目录", default = "/mnt/dvd", placeholder = "/mnt/dvd" },
+  { name = "mountpoint", label = "挂载目录", default = "/mnt/dvd", placeholder = "/mnt/dvd", help = "光盘挂载目录；挂载和卸载通常需要 sudo 权限" },
 ]
 
+[commands.disc_umount_iso_and_dvd]
+category = "disc"
+title = "卸载 ISO 和光盘"
+description = "同时卸载常用的 ISO 与光盘挂载目录"
+danger = false
+template = '''
+sudo umount <<"{{iso_mount}}">> 2>/dev/null || true
+sudo umount <<"{{dvd_mount}}">> 2>/dev/null || true
+'''
+
+params = [
+  { name = "iso_mount", label = "ISO 挂载目录", default = "/mnt/iso", placeholder = "/mnt/iso", help = "ISO 的临时挂载点；命令会尝试创建该目录" },
+  { name = "dvd_mount", label = "光盘挂载目录", default = "/mnt/dvd", placeholder = "/mnt/dvd", help = "光盘的临时挂载点；命令会尝试创建该目录" },
+]
 
 [commands.disc_eject]
 category = "disc"
@@ -180,9 +269,8 @@ eject <<"{{device}}">>
 '''
 
 params = [
-  { name = "device", label = "光驱设备", default = "/dev/sr0", placeholder = "/dev/sr0" },
+  { name = "device", label = "光驱设备", default = "/dev/sr0", placeholder = "/dev/sr0", help = "通常是 /dev/sr0；可先运行查看光驱设备确认" },
 ]
-
 
 [commands.disc_blank_rw]
 category = "disc"
@@ -194,8 +282,8 @@ xorriso -outdev <<"{{device}}">> -blank [[mode:{{mode}}]]
 '''
 
 params = [
-  { name = "device", label = "光驱设备", default = "/dev/sr0", placeholder = "/dev/sr0" },
-  { name = "mode", label = "擦除模式", default = "fast", choices = ["fast", "all", "as_needed"] },
+  { name = "device", label = "光驱设备", default = "/dev/sr0", placeholder = "/dev/sr0", help = "通常是 /dev/sr0；可先运行查看光驱设备确认" },
+  { name = "mode", label = "擦除模式", default = "fast", choices = ["fast", "all", "as_needed"], help = "fast 快速擦除，all 全盘擦除，as_needed 由 xorriso 按介质决定" },
 ]
 
 options = [

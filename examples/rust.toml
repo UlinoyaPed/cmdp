@@ -11,7 +11,7 @@ cargo run [[release:--release]] [[args:-- {{args}}]]
 '''
 
 params = [
-  { name = "args", label = "程序参数", placeholder = "--help" },
+  { name = "args", label = "程序参数", placeholder = "--help", help = "会放在 cargo run -- 后面，传给你的程序而不是 Cargo" },
 ]
 
 options = [
@@ -43,7 +43,7 @@ cargo test [[locked:--locked]] [[test_name:{{test_name}}]] [[nocapture:-- --noca
 '''
 
 params = [
-  { name = "test_name", label = "测试名", placeholder = "parser" },
+  { name = "test_name", label = "测试名", placeholder = "parser", help = "按测试名过滤；可以填模块路径片段或测试函数名片段" },
 ]
 
 options = [
@@ -76,7 +76,7 @@ cargo clippy [[locked:--locked]] [[all_targets:--all-targets]] [[features:--feat
 '''
 
 params = [
-  { name = "features", label = "Features", placeholder = "serde,cli" },
+  { name = "features", label = "Features", placeholder = "serde,cli", help = "多个 feature 用逗号分隔，例如 serde,cli" },
 ]
 
 options = [
@@ -96,7 +96,7 @@ cargo install <<"{{crate}}">> [[locked:--locked]]
 '''
 
 params = [
-  { name = "crate", label = "Crate 名称", placeholder = "ripgrep" },
+  { name = "crate", label = "Crate 名称", placeholder = "ripgrep", help = "crates.io 包名；安装本地项目请用 Cargo Install Path" },
 ]
 
 options = [

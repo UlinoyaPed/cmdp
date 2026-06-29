@@ -20,7 +20,7 @@ flatpak search <<"{{keyword}}">>
 '''
 
 params = [
-  { name = "keyword", label = "关键词", placeholder = "telegram" },
+  { name = "keyword", label = "关键词", placeholder = "telegram", help = "用于 flatpak search，会匹配应用名、ID 和描述" },
 ]
 
 [commands.flatpak_install]
@@ -33,8 +33,8 @@ flatpak install [[user:--user]] [[remote:{{remote}}]] <<"{{app_id}}">>
 '''
 
 params = [
-  { name = "remote", label = "远程仓库", default = "flathub", placeholder = "flathub" },
-  { name = "app_id", label = "应用 ID", placeholder = "org.telegram.desktop" },
+  { name = "remote", label = "远程仓库", default = "flathub", placeholder = "flathub", help = "通常是 flathub；只有安装命令需要指定远程仓库" },
+  { name = "app_id", label = "应用 ID", placeholder = "org.telegram.desktop", help = "Flatpak 应用 ID，一般是反向域名形式" },
 ]
 
 options = [
@@ -52,7 +52,7 @@ flatpak uninstall [[user:--user]] <<"{{app_id}}">>
 '''
 
 params = [
-  { name = "app_id", label = "应用 ID", placeholder = "org.telegram.desktop" },
+  { name = "app_id", label = "应用 ID", placeholder = "org.telegram.desktop", help = "Flatpak 应用 ID，一般是反向域名形式" },
 ]
 
 options = [
@@ -69,5 +69,5 @@ flatpak info --show-permissions <<"{{app_id}}">>
 '''
 
 params = [
-  { name = "app_id", label = "应用 ID", placeholder = "org.telegram.desktop" },
+  { name = "app_id", label = "应用 ID", placeholder = "org.telegram.desktop", help = "Flatpak 应用 ID，一般是反向域名形式" },
 ]

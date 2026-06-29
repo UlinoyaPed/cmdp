@@ -44,7 +44,7 @@ tail [[lines:-n {{lines}}]] [[follow:-f]] <<"{{file}}">>
 
 params = [
   { name = "file", label = "日志文件", placeholder = "/var/log/example.log" },
-  { name = "lines", label = "显示行数", default = "100", placeholder = "100" },
+  { name = "lines", label = "显示行数", default = "100", placeholder = "100", help = "传给 tail -n，只填数字" },
 ]
 
 options = [

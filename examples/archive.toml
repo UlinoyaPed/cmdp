@@ -11,8 +11,8 @@ tar -czvf <<"{{output}}">> <<"{{path}}">>
 '''
 
 params = [
-  { name = "output", label = "输出文件", placeholder = "archive.tar.gz" },
-  { name = "path", label = "要压缩的文件或目录", default = ".", placeholder = "." },
+  { name = "output", label = "输出文件", placeholder = "archive.tar.gz", help = "输出压缩包路径；扩展名应和命令类型匹配" },
+  { name = "path", label = "要压缩的文件或目录", default = ".", placeholder = ".", help = "填 . 表示当前目录；路径会作为一个参数传给压缩命令" },
 ]
 
 [commands.tar_extract]
@@ -25,8 +25,8 @@ tar -xvf <<"{{archive}}">> [[directory:-C "{{directory}}"]]
 '''
 
 params = [
-  { name = "archive", label = "压缩包路径", placeholder = "archive.tar.gz" },
-  { name = "directory", label = "解压到目录", placeholder = "./output" },
+  { name = "archive", label = "压缩包路径", placeholder = "archive.tar.gz", help = "要解压的 tar/tar.gz 压缩包路径" },
+  { name = "directory", label = "解压到目录", placeholder = "./output", help = "启用指定目录选项后传给解压命令；目录可不存在" },
 ]
 
 options = [
@@ -43,8 +43,8 @@ zip [[recursive:-r]] <<"{{output}}">> <<"{{path}}">>
 '''
 
 params = [
-  { name = "output", label = "输出文件", placeholder = "archive.zip" },
-  { name = "path", label = "要压缩的文件或目录", default = ".", placeholder = "." },
+  { name = "output", label = "输出文件", placeholder = "archive.zip", help = "输出 zip 文件路径，父目录需要可写" },
+  { name = "path", label = "要压缩的文件或目录", default = ".", placeholder = ".", help = "填 . 表示当前目录；路径会作为一个参数传给压缩命令" },
 ]
 
 options = [
@@ -61,8 +61,8 @@ unzip <<"{{archive}}">> [[directory:-d "{{directory}}"]]
 '''
 
 params = [
-  { name = "archive", label = "zip 文件", placeholder = "archive.zip" },
-  { name = "directory", label = "解压到目录", placeholder = "./output" },
+  { name = "archive", label = "zip 文件", placeholder = "archive.zip", help = "要解压的 zip 文件路径" },
+  { name = "directory", label = "解压到目录", placeholder = "./output", help = "启用指定目录选项后传给解压命令；目录可不存在" },
 ]
 
 options = [

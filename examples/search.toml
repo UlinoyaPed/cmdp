@@ -12,10 +12,10 @@ find <<"{{path}}">> [[maxdepth:-maxdepth {{maxdepth}}]] [[kind:-type {{kind}}]] 
 
 params = [
   { name = "path", label = "搜索路径", default = ".", placeholder = "." },
-  { name = "kind", label = "类型", default = "f", choices = ["f", "d", "l"] },
-  { name = "pattern", label = "文件名匹配", placeholder = "*.rs" },
-  { name = "ipattern", label = "忽略大小写匹配", placeholder = "*.log" },
-  { name = "maxdepth", label = "最大深度", placeholder = "2" },
+  { name = "kind", label = "类型", default = "f", choices = ["f", "d", "l"], help = "find -type 的类型：f 文件，d 目录，l 符号链接" },
+  { name = "pattern", label = "文件名匹配", placeholder = "*.rs", help = "传给 find -name，区分大小写，可用通配符" },
+  { name = "ipattern", label = "忽略大小写匹配", placeholder = "*.log", help = "传给 find -iname，不区分大小写，可用通配符" },
+  { name = "maxdepth", label = "最大深度", placeholder = "2", help = "传给 find -maxdepth，只填数字" },
 ]
 
 options = [
@@ -35,9 +35,9 @@ grep [[recursive:-r]] [[line_number:-n]] [[ignore_case:-i]] [[fixed:-F]] [[exclu
 '''
 
 params = [
-  { name = "query", label = "搜索内容", placeholder = "TODO" },
+  { name = "query", label = "搜索内容", placeholder = "TODO", help = "grep 搜索内容；启用固定字符串可避免正则含义" },
   { name = "path", label = "搜索路径", default = ".", placeholder = "." },
-  { name = "exclude_dir", label = "排除目录", default = ".git", placeholder = ".git" },
+  { name = "exclude_dir", label = "排除目录", default = ".git", placeholder = ".git", help = "传给 grep --exclude-dir，通常填目录名而不是路径" },
 ]
 
 options = [

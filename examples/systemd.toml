@@ -11,7 +11,7 @@ template = '''
 '''
 
 params = [
-  { name = "service", label = "服务名", placeholder = "ssh.service / hintsd.service" },
+  { name = "service", label = "服务名", placeholder = "ssh.service / hintsd.service", help = "填写 systemd unit 名；普通系统服务通常以 .service 结尾" },
 ]
 
 options = [
@@ -29,7 +29,7 @@ template = '''
 '''
 
 params = [
-  { name = "service", label = "服务名", placeholder = "ssh.service / hintsd.service" },
+  { name = "service", label = "服务名", placeholder = "ssh.service / hintsd.service", help = "填写 systemd unit 名；普通系统服务通常以 .service 结尾" },
 ]
 
 options = [
@@ -47,8 +47,8 @@ journalctl [[user:--user]] [[unit:-u "{{service}}"]] [[boot:-b]] [[lines:-n {{li
 '''
 
 params = [
-  { name = "service", label = "服务名", placeholder = "ssh.service / hintsd.service" },
-  { name = "lines", label = "显示行数", default = "100", placeholder = "100" },
+  { name = "service", label = "服务名", placeholder = "ssh.service / hintsd.service", help = "填写 systemd unit 名；普通系统服务通常以 .service 结尾" },
+  { name = "lines", label = "显示行数", default = "100", placeholder = "100", help = "传给 journalctl -n，只填数字" },
 ]
 
 options = [

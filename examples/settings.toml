@@ -1,0 +1,4 @@
+language = "zh-CN"
+remember_last_selection = true
+remember_last_input = true
+input_record_limit = 20

@@ -12,7 +12,7 @@ du [[human:-h]] [[summary:-s]] [[depth:--max-depth={{depth}}]] <<"{{path}}">>
 
 params = [
   { name = "path", label = "目录路径", default = ".", placeholder = "." },
-  { name = "depth", label = "目录深度", default = "1", placeholder = "1" },
+  { name = "depth", label = "目录深度", default = "1", placeholder = "1", help = "传给 du --max-depth，只填数字" },
 ]
 
 options = [
@@ -50,5 +50,5 @@ find <<"{{path}}">> -type f -size +{{size}} -printf '%s\t%p\n' | sort -nr | numf
 
 params = [
   { name = "path", label = "搜索路径", default = ".", placeholder = "." },
-  { name = "size", label = "大于多少", default = "100M", placeholder = "100M / 1G" },
+  { name = "size", label = "大于多少", default = "100M", placeholder = "100M / 1G", help = "传给 find -size +，例如 100M、1G、500k" },
 ]
