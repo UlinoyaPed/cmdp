@@ -28,6 +28,7 @@ fn main() -> Result<()> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
     let res = run(&mut terminal, &mut app);
+    app.persist_exit_state();
     disable_raw_mode()?;
     execute!(
         terminal.backend_mut(),

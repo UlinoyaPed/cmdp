@@ -24,8 +24,9 @@ pub fn handle_key(app: &mut App, key: KeyEvent) {
             KeyCode::Esc | KeyCode::F(2) => app.close_settings(),
             KeyCode::Up | KeyCode::Char('k') => app.move_settings(false),
             KeyCode::Down | KeyCode::Char('j') => app.move_settings(true),
-            KeyCode::Left => app.adjust_setting(false),
-            KeyCode::Right | KeyCode::Enter | KeyCode::Char(' ') => app.adjust_setting(true),
+            KeyCode::Left if app.settings_idx != 4 => app.adjust_setting(false),
+            KeyCode::Right if app.settings_idx != 4 => app.adjust_setting(true),
+            KeyCode::Enter | KeyCode::Char(' ') => app.adjust_setting(true),
             _ => {}
         }
         return;

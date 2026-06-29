@@ -93,13 +93,13 @@ input_record_limit = 20
 language = "zh-CN"
 ```
 
-这个文件只放程序设置，不参与命令配置合并；`settings.toml` 也会从全局命令配置列表里排除。开启后，`cmdp` 会把最近选择的分类、命令和输入快照写入 `${XDG_STATE_HOME:-~/.local/state}/cmdp/state.toml`，下次启动或 `Ctrl+r` 重新加载后恢复。在 Unix 系统上，状态文件会以仅当前用户可读写的权限写入。
+这个文件只放程序设置，不参与命令配置合并；`settings.toml` 也会从全局命令配置列表里排除。开启后，`cmdp` 会把最近选择的分类、命令、退出时所在栏目和输入快照写入 `${XDG_STATE_HOME:-~/.local/state}/cmdp/state.toml`，下次启动或 `Ctrl+r` 重新加载后恢复。在 Unix 系统上，状态文件会以仅当前用户可读写的权限写入。
 
 `language` 控制内置界面语言，默认是 `zh-CN`，也可以设置为 `en`。这个设置会影响标题栏、快捷键帮助、空状态、预览区提示、文件选择器和状态错误等程序自带文案；命令标题、分类别名、参数标签和说明仍由你的 TOML 命令配置决定。
 
-`remember_last_selection` 控制是否恢复上次选中的分类和命令；`remember_last_input` 控制是否按命令 ID 恢复上次输入的普通参数值和可选片段状态；`input_record_limit` 控制最多保留多少条命令输入记录，默认是 `20`。`secret = true` 的参数不会写入状态文件。把对应开关改为 `false` 或删除设置文件即可关闭。
+`remember_last_selection` 控制是否恢复上次选中的分类、命令和焦点栏目；`remember_last_input` 控制是否按命令 ID 恢复上次输入的普通参数值和可选片段状态；`input_record_limit` 控制最多保留多少条命令输入记录，默认是 `20`。`secret = true` 的参数不会写入状态文件。把对应开关改为 `false` 或删除设置文件即可关闭。
 
-也可以在 TUI 里按 `F2` 打开设置窗口直接修改这些设置。`↑` / `↓` 选择设置项，`Enter` / `Space` / `←` / `→` 修改当前项，变更会立即写入 `~/.config/cmdp/settings.toml`。
+也可以在 TUI 里按 `F2` 打开设置窗口直接修改这些设置。`↑` / `↓` 选择设置项，`Enter` / `Space` 修改当前项或执行动作项，`←` / `→` 修改普通设置项，变更会立即写入 `~/.config/cmdp/settings.toml`。选择 `清空历史` 后按 `Enter` / `Space`，会删除 `${XDG_STATE_HOME:-~/.local/state}/cmdp/state.toml`。
 
 按 `F3` 可以打开配置编辑窗口。默认会载入当前选中的命令；`Ctrl+n` 新建全局命令草稿，`Enter` 编辑当前字段，`Ctrl+s` 保存。也可以直接用鼠标点击字段进入编辑。编辑字段时，`Ctrl+j`、`Ctrl+Enter` 或 `Alt+Enter` 插入换行；直接粘贴多行命令也会保留换行。列表预览会把换行显示成 `↵`，避免多行模板撑乱字段列表。
 

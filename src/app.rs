@@ -7,7 +7,7 @@ use crate::{
 };
 use serde::Deserialize;
 
-const SETTINGS_ITEM_COUNT: usize = 4;
+const SETTINGS_ITEM_COUNT: usize = 5;
 const CONFIG_EDITOR_FIELD_COUNT: usize = 9;
 use std::{
     collections::{HashMap, HashSet},
@@ -170,6 +170,7 @@ pub struct App {
     pub output: Option<String>,
     pub error: Option<String>,
     pub preview_scroll: u16,
+    pub history_cleared: bool,
     pub danger_confirmation: Option<String>,
     pub show_help: bool,
     pub show_settings: bool,
@@ -197,6 +198,7 @@ impl App {
             output: None,
             error: None,
             preview_scroll: 0,
+            history_cleared: false,
             danger_confirmation: None,
             show_help: false,
             show_settings: false,
@@ -431,8 +433,27 @@ impl App {
     }
 
     pub fn adjust_setting(&mut self, forward: bool) {
-        adjust_setting_value(&mut self.config.settings, self.settings_idx, forward);
-        self.persist_settings();
+        if self.settings_idx == 4 {
+            self.clear_history();
+        } else {
+            adjust_setting_value(&mut self.config.settings, self.settings_idx, forward);
+            self.persist_settings();
+        }
+    }
+
+    pub fn clear_history(&mut self) {
+        match state::clear() {
+            Ok(()) => {
+                self.history_cleared = true;
+                self.error = None;
+            }
+            Err(error) => {
+                self.error = Some(format!(
+                    "{}{error}",
+                    self.texts().clear_history_failed_prefix
+                ));
+            }
+        }
     }
 
     pub fn open_file_picker(&mut self) {
@@ -1331,6 +1352,12 @@ impl App {
         }
     }
 
+    pub fn persist_exit_state(&mut self) {
+        if !self.history_cleared {
+            self.persist_selection();
+        }
+    }
+
     pub fn reset_preview_scroll(&mut self) {
         self.preview_scroll = 0;
     }
@@ -1490,12 +1517,15 @@ impl App {
         let mut app_state = self.load_app_state_or_default();
         app_state.category_id = self.current_category_id().cloned();
         app_state.command_id = self.current_command().map(|(id, _)| id.clone());
+        app_state.focus = Some(focus_state_id(self.focus).to_string());
         self.clamp_input_records(&mut app_state);
         if let Err(error) = state::save(&app_state) {
             self.error = Some(format!(
                 "{}{error}",
                 self.texts().save_last_selection_failed_prefix
             ));
+        } else {
+            self.history_cleared = false;
         }
     }
 
@@ -1552,6 +1582,8 @@ impl App {
                 "{}{error}",
                 self.texts().save_last_input_failed_prefix
             ));
+        } else {
+            self.history_cleared = false;
         }
     }
 
@@ -1588,6 +1620,7 @@ impl App {
     }
 
     fn apply_selection_state(&mut self, state: &AppState) {
+        let mut restored_command = false;
         if let Some(command_id) = state.command_id.as_deref()
             && let Some((_, command)) = self.config.commands.get_key_value(command_id)
         {
@@ -1605,11 +1638,12 @@ impl App {
             {
                 self.command_idx = command_idx;
                 self.reset_form();
-                return;
+                restored_command = true;
             }
         }
 
-        if let Some(category_id) = state.category_id.as_deref()
+        if !restored_command
+            && let Some(category_id) = state.category_id.as_deref()
             && let Some(category_idx) = self
                 .category_ids()
                 .iter()
@@ -1619,6 +1653,14 @@ impl App {
             self.command_idx = 0;
             self.reset_form();
         }
+        self.apply_focus_state(state);
+    }
+
+    fn apply_focus_state(&mut self, state: &AppState) {
+        if let Some(focus) = state.focus.as_deref().and_then(focus_from_state_id) {
+            self.focus = focus;
+        }
+        self.clamp_form();
     }
 
     fn apply_current_input(&mut self, state: &AppState) {
@@ -2443,6 +2485,23 @@ fn config_edit_target(source: Option<Source>, local_path: Option<PathBuf>) -> Co
     }
 }
 
+fn focus_state_id(focus: Focus) -> &'static str {
+    match focus {
+        Focus::Categories => "categories",
+        Focus::Commands => "commands",
+        Focus::Form => "form",
+    }
+}
+
+fn focus_from_state_id(value: &str) -> Option<Focus> {
+    match value {
+        "categories" => Some(Focus::Categories),
+        "commands" => Some(Focus::Commands),
+        "form" => Some(Focus::Form),
+        _ => None,
+    }
+}
+
 fn adjust_setting_value(settings: &mut Settings, idx: usize, forward: bool) {
     match idx {
         0 => {
@@ -2704,6 +2763,7 @@ mod tests {
         app.apply_selection_state(&AppState {
             category_id: Some("file".to_string()),
             command_id: Some("cargo_check".to_string()),
+            focus: None,
             input_records: Vec::new(),
         });
 
@@ -2715,11 +2775,26 @@ mod tests {
     }
 
     #[test]
+    fn applies_last_focus_from_state() {
+        let mut app = App::new(test_config());
+
+        app.apply_selection_state(&AppState {
+            category_id: Some("file".to_string()),
+            command_id: Some("find_large".to_string()),
+            focus: Some("form".to_string()),
+            input_records: Vec::new(),
+        });
+
+        assert_eq!(app.focus, Focus::Form);
+    }
+
+    #[test]
     fn applies_last_input_for_current_command_only() {
         let mut app = App::new(test_config());
         app.apply_selection_state(&AppState {
             category_id: Some("file".to_string()),
             command_id: Some("find_large".to_string()),
+            focus: None,
             input_records: Vec::new(),
         });
         app.values.insert("path".to_string(), ".".to_string());
@@ -2727,6 +2802,7 @@ mod tests {
         app.apply_current_input(&AppState {
             category_id: None,
             command_id: None,
+            focus: None,
             input_records: vec![InputRecord {
                 command_id: "find_large".to_string(),
                 values: [("path".to_string(), "./src".to_string())].into(),
@@ -2744,6 +2820,7 @@ mod tests {
         app.apply_selection_state(&AppState {
             category_id: Some("file".to_string()),
             command_id: Some("find_large".to_string()),
+            focus: None,
             input_records: Vec::new(),
         });
         app.values
@@ -2765,6 +2842,7 @@ mod tests {
         app.apply_selection_state(&AppState {
             category_id: Some("file".to_string()),
             command_id: Some("find_large".to_string()),
+            focus: None,
             input_records: Vec::new(),
         });
         app.focus = Focus::Form;
@@ -2795,6 +2873,7 @@ mod tests {
         app.apply_selection_state(&AppState {
             category_id: Some("file".to_string()),
             command_id: Some("find_large".to_string()),
+            focus: None,
             input_records: Vec::new(),
         });
         let dir = std::env::current_dir().unwrap();
@@ -2838,6 +2917,7 @@ mod tests {
         app.apply_selection_state(&AppState {
             category_id: Some("file".to_string()),
             command_id: Some("find_large".to_string()),
+            focus: None,
             input_records: Vec::new(),
         });
         app.focus = Focus::Commands;
@@ -2875,6 +2955,7 @@ mod tests {
         let mut state = AppState {
             category_id: None,
             command_id: None,
+            focus: None,
             input_records: vec![
                 InputRecord {
                     command_id: "first".to_string(),

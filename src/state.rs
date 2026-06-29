@@ -15,6 +15,18 @@ pub fn save(state: &AppState) -> Result<()> {
     write_to_path(&state_path()?, state)
 }
 
+pub fn clear() -> Result<()> {
+    clear_path(&state_path()?)
+}
+
+fn clear_path(path: &Path) -> Result<()> {
+    match fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error).with_context(|| format!("remove {}", path.display())),
+    }
+}
+
 pub fn state_path() -> Result<PathBuf> {
     let base = BaseDirs::new().context("cannot determine home directory")?;
     let state_dir = base
@@ -63,7 +75,7 @@ fn write_private(path: &Path, contents: &[u8]) -> io::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{read_from_path, write_to_path};
+    use super::{clear_path, read_from_path, write_to_path};
     use crate::template::{AppState, InputRecord};
     use std::collections::BTreeMap;
     use std::{
@@ -81,6 +93,7 @@ mod tests {
         let state = AppState {
             category_id: Some("dev".to_string()),
             command_id: Some("cargo_test".to_string()),
+            focus: Some("form".to_string()),
             input_records: vec![InputRecord {
                 command_id: "cargo_test".to_string(),
                 values,
@@ -91,6 +104,18 @@ mod tests {
         write_to_path(&path, &state).unwrap();
 
         assert_eq!(read_from_path(&path).unwrap(), Some(state));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn clear_path_removes_existing_state_file() {
+        let dir = temp_state_dir();
+        let path = dir.join("state.toml");
+        write_to_path(&path, &AppState::default()).unwrap();
+
+        clear_path(&path).unwrap();
+
+        assert!(read_from_path(&path).unwrap().is_none());
         fs::remove_dir_all(dir).unwrap();
     }
 

@@ -46,6 +46,8 @@ pub struct AppState {
     pub category_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub command_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub focus: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub input_records: Vec<InputRecord>,
 }

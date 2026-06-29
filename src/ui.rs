@@ -274,6 +274,10 @@ fn draw_settings_popup(f: &mut Frame, app: &App, area: Rect) {
             texts.settings_input_record_limit,
             &settings.input_record_limit.to_string(),
         ),
+        settings_item(
+            texts.settings_clear_history,
+            texts.settings_clear_history_action,
+        ),
     ];
     let mut state = ListState::default();
     state.select(Some(app.settings_idx));
