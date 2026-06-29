@@ -237,7 +237,7 @@ find <<{{path}}>> -type f [[size:-size +{{size}}]]
 
 - `category`: 命令所属分类 ID
 - `title`: 界面显示标题
-- `description`: 命令说明，可被快速搜索匹配
+- `description`: 命令说明，会在命令栏底部随当前选中命令显示，也可被快速搜索匹配
 - `danger`: 危险命令标记，预览区会明确提示
 - `template`: 命令模板
 - `params`: 参数定义数组
@@ -249,12 +249,12 @@ find <<{{path}}>> -type f [[size:-size +{{size}}]]
 params = [
   { name = "path", label = "搜索路径", default = ".", placeholder = "." },
   { name = "pattern", label = "文件名匹配", placeholder = "*.log" },
-  { name = "mode", label = "模式", choices = ["fast", "full"] },
+  { name = "mode", label = "模式", help = "fast 更快；full 会做完整扫描", choices = ["fast", "full"] },
   { name = "token", label = "Token", secret = true },
 ]
 ```
 
-只有 `name` 必填。所有参数都按原始文本处理，不做自动转义、类型转换、路径检查或数字校验。需要引号时请直接写在模板里，例如 `-name "{{pattern}}"`。
+只有 `name` 必填。焦点在参数面板时，`help` 会在底部随当前选中参数显示，适合解释 choices、危险模式、路径格式或单位；`placeholder` 仍显示在输入框内或参数行尾部，适合放短示例。所有参数都按原始文本处理，不做自动转义、类型转换、路径检查或数字校验。需要引号时请直接写在模板里，例如 `-name "{{pattern}}"`。
 
 可选项定义：
 

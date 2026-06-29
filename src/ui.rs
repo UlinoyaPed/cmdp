@@ -682,6 +682,24 @@ fn block(t: &str, focus: bool) -> Block<'static> {
         })
 }
 
+fn form_block(title: &str, focus: bool, help: Option<String>) -> Block<'static> {
+    let block = block(title, focus);
+    if let Some(help) = help {
+        block.title_bottom(Span::styled(help, Style::default().fg(Color::LightBlue)))
+    } else {
+        block
+    }
+}
+
+fn command_block(title: &str, focus: bool, help: Option<String>) -> Block<'static> {
+    let block = block(title, focus);
+    if let Some(help) = help {
+        block.title_bottom(Span::styled(help, Style::default().fg(Color::LightBlue)))
+    } else {
+        block
+    }
+}
+
 fn draw_categories(f: &mut Frame, app: &App, area: Rect) {
     let texts = app.texts();
     let items: Vec<ListItem> = app
@@ -713,6 +731,7 @@ fn draw_categories(f: &mut Frame, app: &App, area: Rect) {
 fn draw_commands(f: &mut Frame, app: &App, area: Rect) {
     let texts = app.texts();
     let commands = app.visible_commands();
+    let command_help = command_help_text(texts, &commands, app.command_idx, area.width);
     let items: Vec<ListItem> = if commands.is_empty() {
         vec![ListItem::new(Line::from(Span::styled(
             if app.search_active() {
@@ -751,9 +770,10 @@ fn draw_commands(f: &mut Frame, app: &App, area: Rect) {
         List::new(items)
             .highlight_symbol("› ")
             .highlight_style(Style::default().bg(Color::DarkGray).fg(Color::White))
-            .block(block(
+            .block(command_block(
                 &title,
                 app.focus == Focus::Commands || app.search_editing,
+                command_help,
             )),
         area,
         &mut state,
@@ -784,9 +804,38 @@ fn command_item(app: &App, id: &str, command: &crate::template::Command) -> List
     ListItem::new(Line::from(spans))
 }
 
+fn command_description(command: &crate::template::Command) -> Option<&str> {
+    command
+        .description
+        .as_deref()
+        .map(str::trim)
+        .filter(|description| !description.is_empty())
+}
+
+fn command_help_text(
+    texts: &Texts,
+    commands: &[(&String, &crate::template::Command)],
+    selected: usize,
+    area_width: u16,
+) -> Option<String> {
+    let description = commands
+        .get(selected)
+        .and_then(|(_, command)| command_description(command))?;
+    let max_chars = area_width.saturating_sub(4).max(8) as usize;
+    Some(truncate(
+        &format!("{}{}", texts.command_help_prefix, description),
+        max_chars,
+    ))
+}
+
 fn draw_form(f: &mut Frame, app: &App, area: Rect) {
     let texts = app.texts();
     let form_items = app.form_items();
+    let form_help = if app.focus == Focus::Form {
+        form_help_text(texts, &form_items, app.form_idx, area.width)
+    } else {
+        None
+    };
     let mut rows: Vec<ListItem> = Vec::new();
 
     for (idx, item) in form_items.into_iter().enumerate() {
@@ -796,7 +845,7 @@ fn draw_form(f: &mut Frame, app: &App, area: Rect) {
                 label,
                 value,
                 placeholder,
-                help,
+                help: _,
                 secret,
                 choices,
                 required,
@@ -808,7 +857,6 @@ fn draw_form(f: &mut Frame, app: &App, area: Rect) {
                 label,
                 value,
                 placeholder,
-                help,
                 secret,
                 choices,
                 required,
@@ -834,10 +882,36 @@ fn draw_form(f: &mut Frame, app: &App, area: Rect) {
         List::new(rows)
             .highlight_symbol("› ")
             .highlight_style(Style::default().bg(Color::DarkGray).fg(Color::White))
-            .block(block(texts.form_title, app.focus == Focus::Form)),
+            .block(form_block(
+                texts.form_title,
+                app.focus == Focus::Form,
+                form_help,
+            )),
         area,
         &mut state,
     );
+}
+
+fn form_help_text(
+    texts: &Texts,
+    items: &[FormItem],
+    selected: usize,
+    area_width: u16,
+) -> Option<String> {
+    let help = match items.get(selected) {
+        Some(FormItem::Param {
+            help: Some(help), ..
+        }) => help.trim(),
+        _ => "",
+    };
+    if help.is_empty() {
+        return None;
+    }
+    let max_chars = area_width.saturating_sub(4).max(8) as usize;
+    Some(truncate(
+        &format!("{}{}", texts.form_help_prefix, help),
+        max_chars,
+    ))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -848,7 +922,6 @@ fn param_item(
     label: String,
     value: String,
     placeholder: Option<String>,
-    help: Option<String>,
     secret: bool,
     choices: Vec<String>,
     required: bool,
@@ -881,8 +954,7 @@ fn param_item(
     } else {
         Style::default().fg(Color::DarkGray)
     };
-    let detail = help
-        .or(placeholder)
+    let detail = placeholder
         .map(|text| format!("  {text}"))
         .unwrap_or_default();
     let choices_hint = if choices.is_empty() {
@@ -1060,8 +1132,13 @@ fn file_picker_chunks(popup: Rect) -> Rc<[Rect]> {
 
 #[cfg(test)]
 mod tests {
-    use super::{centered_rect, edit_display, source_short_label};
-    use crate::template::Source;
+    use super::{
+        centered_rect, command_description, command_help_text, edit_display, form_help_text,
+        source_short_label,
+    };
+    use crate::app::FormItem;
+    use crate::i18n::ZH_CN;
+    use crate::template::{Command, Source};
     use ratatui::prelude::Rect;
 
     #[test]
@@ -1085,11 +1162,78 @@ mod tests {
     }
 
     #[test]
+    fn form_help_text_uses_selected_parameter_help() {
+        let items = vec![FormItem::Param {
+            name: "mode".to_string(),
+            label: "模式".to_string(),
+            value: String::new(),
+            placeholder: None,
+            help: Some("soft 保留修改，hard 会丢弃工作区修改".to_string()),
+            secret: false,
+            choices: vec![],
+            required: true,
+        }];
+
+        assert_eq!(
+            form_help_text(&ZH_CN, &items, 0, 80).as_deref(),
+            Some("帮助：soft 保留修改，hard 会丢弃工作区修改")
+        );
+    }
+
+    #[test]
+    fn form_help_text_ignores_options_and_empty_help() {
+        let items = vec![FormItem::Option {
+            id: "verbose".to_string(),
+            label: "详细输出".to_string(),
+            enabled: false,
+        }];
+
+        assert!(form_help_text(&ZH_CN, &items, 0, 80).is_none());
+    }
+
+    #[test]
+    fn command_description_trims_and_ignores_empty_text() {
+        let mut command = test_command();
+
+        command.description = Some("  查看当前仓库状态  ".to_string());
+        assert_eq!(command_description(&command), Some("查看当前仓库状态"));
+
+        command.description = Some("   ".to_string());
+        assert_eq!(command_description(&command), None);
+    }
+
+    #[test]
+    fn command_help_text_uses_selected_command_description() {
+        let id = "git_status".to_string();
+        let mut command = test_command();
+        command.description = Some("查看当前仓库状态".to_string());
+        let commands = vec![(&id, &command)];
+
+        assert_eq!(
+            command_help_text(&ZH_CN, &commands, 0, 80).as_deref(),
+            Some("说明：查看当前仓库状态")
+        );
+    }
+
+    #[test]
     fn centered_rect_stays_inside_area() {
         let area = Rect::new(0, 0, 40, 12);
 
         let popup = centered_rect(area, 72, 20);
 
         assert_eq!(popup, Rect::new(1, 1, 38, 10));
+    }
+
+    fn test_command() -> Command {
+        Command {
+            category: "git".to_string(),
+            title: Some("Git 状态".to_string()),
+            description: None,
+            danger: false,
+            template: "git status".to_string(),
+            params: vec![],
+            options: vec![],
+            source: Source::Global,
+        }
     }
 }
