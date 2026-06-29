@@ -286,6 +286,16 @@ rg [[ignore_case:-i]] [[line_number:-n]] [[glob:--glob "{{glob}}"]] <<{{query}}>
 
 这里 `query` 和 `path` 是必填参数；`ignore_case`、`line_number`、`glob` 是可切换的可选片段；只有启用 `glob` 后，`glob` 参数才必须填写。
 
+模板可以直接写成多行命令。渲染时会保留模板里的换行和行首缩进，最终整段文本会交给 shell 执行；普通的行内空白仍会被压成单个空格，避免关闭可选片段后留下多余空格。
+
+```toml
+template = '''
+echo "准备构建"
+cargo build [[release:--release]]
+echo "构建完成"
+'''
+```
+
 不支持嵌套片段，例如 `[[...<<...>>...]]` 或 `<<...[[...]]...>>`。
 
 ### 重定向写法
