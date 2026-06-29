@@ -54,13 +54,9 @@ pub fn draw(f: &mut Frame, app: &App) {
     draw_commands(f, app, areas.commands);
     draw_form(f, app, areas.form);
 
-    let mut preview = app.preview_text();
-    if let Some(error) = &app.error {
-        preview = format!("{error}\n{preview}");
-    }
+    let preview = app.preview_text();
     f.render_widget(
-        Paragraph::new(preview)
-            .style(Style::default().fg(Color::White))
+        Paragraph::new(preview_lines(texts, &preview, app.error.as_deref()))
             .wrap(Wrap { trim: false })
             .block(
                 block(texts.preview_title, false).border_style(Style::default().fg(Color::Blue)),
@@ -685,10 +681,14 @@ fn block(t: &str, focus: bool) -> Block<'static> {
 fn form_block(title: &str, focus: bool, help: Option<String>) -> Block<'static> {
     let block = block(title, focus);
     if let Some(help) = help {
-        block.title_bottom(Span::styled(help, Style::default().fg(Color::LightBlue)))
+        block.title_bottom(Span::styled(help, form_help_style()))
     } else {
         block
     }
+}
+
+fn form_help_style() -> Style {
+    Style::default().fg(Color::DarkGray)
 }
 
 fn command_block(title: &str, focus: bool, help: Option<String>) -> Block<'static> {
@@ -697,6 +697,36 @@ fn command_block(title: &str, focus: bool, help: Option<String>) -> Block<'stati
         block.title_bottom(Span::styled(help, Style::default().fg(Color::LightBlue)))
     } else {
         block
+    }
+}
+
+fn preview_lines(texts: &Texts, preview: &str, error: Option<&str>) -> Vec<Line<'static>> {
+    let preview_is_hint =
+        preview == texts.empty_config_preview || preview == texts.no_available_command;
+    let mut lines = Vec::new();
+    if let Some(error) = error {
+        lines.push(Line::from(Span::styled(
+            error.to_string(),
+            Style::default().fg(Color::Red),
+        )));
+    }
+    lines.extend(preview.lines().map(|line| {
+        Line::from(Span::styled(
+            line.to_string(),
+            preview_line_style(texts, line, preview_is_hint),
+        ))
+    }));
+    lines
+}
+
+fn preview_line_style(texts: &Texts, line: &str, preview_is_hint: bool) -> Style {
+    if preview_is_hint
+        || line == texts.danger_preview
+        || line.starts_with(texts.missing_params_prefix)
+    {
+        Style::default().fg(Color::DarkGray)
+    } else {
+        Style::default().fg(Color::White)
     }
 }
 
@@ -1133,13 +1163,13 @@ fn file_picker_chunks(popup: Rect) -> Rc<[Rect]> {
 #[cfg(test)]
 mod tests {
     use super::{
-        centered_rect, command_description, command_help_text, edit_display, form_help_text,
-        source_short_label,
+        centered_rect, command_description, command_help_text, edit_display, form_help_style,
+        form_help_text, preview_line_style, source_short_label,
     };
     use crate::app::FormItem;
     use crate::i18n::ZH_CN;
     use crate::template::{Command, Source};
-    use ratatui::prelude::Rect;
+    use ratatui::prelude::{Color, Rect};
 
     #[test]
     fn source_labels_are_compact() {
@@ -1189,6 +1219,23 @@ mod tests {
         }];
 
         assert!(form_help_text(&ZH_CN, &items, 0, 80).is_none());
+    }
+
+    #[test]
+    fn form_help_uses_gray_bottom_title() {
+        assert_eq!(form_help_style().fg, Some(Color::DarkGray));
+    }
+
+    #[test]
+    fn preview_hints_are_visually_distinct_from_commands() {
+        assert_eq!(
+            preview_line_style(&ZH_CN, "缺失参数：path", false).fg,
+            Some(Color::DarkGray)
+        );
+        assert_eq!(
+            preview_line_style(&ZH_CN, "git status --short", false).fg,
+            Some(Color::White)
+        );
     }
 
     #[test]
