@@ -8,8 +8,8 @@ Source files live in `src/`, with one module per concern:
 `ui.rs` draws widgets, `event.rs` handles keyboard and mouse input,
 `config.rs` loads and validates TOML configuration, and `parser.rs` /
 `renderer.rs` convert command templates into executable command strings.
-Example configuration is stored in `examples/commands.toml`. Unit tests are
-embedded in the relevant source modules under `#[cfg(test)]`.
+Example configuration is split by topic under `examples/*.toml`. Unit tests
+are embedded in the relevant source modules under `#[cfg(test)]`.
 
 ## Build, Test, and Development Commands
 
@@ -29,7 +29,9 @@ Use standard Rust formatting via `rustfmt`; keep code formatted before
 committing. Prefer small modules and focused helper functions that match the
 existing file boundaries. Use `snake_case` for functions, variables, module
 names, command IDs, category IDs, and TOML option IDs. Keep user-facing UI text
-short because it renders in constrained terminal columns.
+short because it renders in constrained terminal columns. When changing built-in
+UI text or config-editor labels, update both language tables in `src/i18n.rs`
+and keep the README wording aligned with the behavior.
 
 ## Testing Guidelines
 

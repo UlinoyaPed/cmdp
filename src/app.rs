@@ -566,7 +566,7 @@ impl App {
             .unwrap_or_default()
     }
 
-    pub fn config_editor_template_part_aliases(&self) -> Vec<String> {
+    pub fn config_editor_template_part_labels(&self) -> Vec<String> {
         let Some(editor) = self.config_editor.as_ref() else {
             return Vec::new();
         };
@@ -575,8 +575,17 @@ impl App {
         };
         parts
             .iter()
-            .map(|part| template_part_alias(&editor.draft, part).unwrap_or_default())
+            .map(|part| template_part_labels(&editor.draft, part).unwrap_or_default())
             .collect()
+    }
+
+    pub fn config_editor_field_preview(&self, idx: usize) -> Option<String> {
+        let editor = self.config_editor.as_ref()?;
+        match idx {
+            7 => params_label_preview(&editor.draft.params).ok(),
+            8 => options_label_preview(&editor.draft.options).ok(),
+            _ => None,
+        }
     }
 
     pub fn reset_config_editor_to_new_command(&mut self) {
@@ -758,9 +767,11 @@ impl App {
         let editor = self.config_editor.as_ref()?;
         let property_editor = editor.template_property_editor.as_ref()?;
         let parts = template_parts(&editor.draft.template).ok()?;
-        parts
-            .get(property_editor.part_index)
-            .map(template_part_display)
+        let part = parts.get(property_editor.part_index)?;
+        template_part_labels(&editor.draft, part)
+            .ok()
+            .filter(|label| !label.trim().is_empty())
+            .or_else(|| Some(template_part_display(part)))
     }
 
     pub fn open_config_template_property_editor(&mut self, part_index: usize) {
@@ -1886,6 +1897,22 @@ fn parse_options_spec(spec: &str) -> Result<Vec<OptionDef>, String> {
         .map_err(|error| error.to_string())
 }
 
+fn params_label_preview(spec: &str) -> Result<String, String> {
+    Ok(parse_params_spec(spec)?
+        .iter()
+        .map(|param| display_label(param.label.as_deref(), &param.name))
+        .collect::<Vec<_>>()
+        .join(", "))
+}
+
+fn options_label_preview(spec: &str) -> Result<String, String> {
+    Ok(parse_options_spec(spec)?
+        .iter()
+        .map(|option| display_label(option.label.as_deref(), &option.id))
+        .collect::<Vec<_>>()
+        .join(", "))
+}
+
 fn parse_legacy_params_spec(spec: &str) -> Result<Vec<Param>, String> {
     spec.split(',')
         .map(str::trim)
@@ -2219,7 +2246,7 @@ fn template_property_fields(
     Ok(fields)
 }
 
-fn template_part_alias(draft: &ConfigDraft, part: &TemplatePart) -> Result<String, String> {
+fn template_part_labels(draft: &ConfigDraft, part: &TemplatePart) -> Result<String, String> {
     let params = parse_params_spec(&draft.params)?;
     let options = parse_options_spec(&draft.options)?;
     let mut labels = Vec::new();
@@ -2230,11 +2257,7 @@ fn template_part_alias(draft: &ConfigDraft, part: &TemplatePart) -> Result<Strin
             .find(|option| option.id == *id)
             .and_then(|option| option.label.as_deref())
             .filter(|label| !label.is_empty());
-        if let Some(label) = option_label {
-            labels.push(format!("{id}: {label}"));
-        } else {
-            labels.push(id.clone());
-        }
+        labels.push(display_label(option_label, id));
     }
 
     for name in &part.params {
@@ -2243,14 +2266,18 @@ fn template_part_alias(draft: &ConfigDraft, part: &TemplatePart) -> Result<Strin
             .find(|param| param.name == *name)
             .and_then(|param| param.label.as_deref())
             .filter(|label| !label.is_empty());
-        if let Some(label) = param_label {
-            labels.push(format!("{name}: {label}"));
-        } else {
-            labels.push(name.clone());
-        }
+        labels.push(display_label(param_label, name));
     }
 
     Ok(labels.join("  "))
+}
+
+fn display_label(label: Option<&str>, fallback: &str) -> String {
+    label
+        .map(str::trim)
+        .filter(|label| !label.is_empty())
+        .unwrap_or(fallback)
+        .to_string()
 }
 
 fn set_template_property(
@@ -2863,6 +2890,20 @@ mod tests {
     }
 
     #[test]
+    fn config_editor_field_previews_use_display_labels() {
+        assert_eq!(
+            params_label_preview(r#"[{ name = "path", label = "路径" }, { name = "pattern" }]"#)
+                .unwrap(),
+            "路径, pattern"
+        );
+        assert_eq!(
+            options_label_preview(r#"[{ id = "glob", label = "Glob 过滤" }, { id = "hidden" }]"#)
+                .unwrap(),
+            "Glob 过滤, hidden"
+        );
+    }
+
+    #[test]
     fn template_parts_extract_required_and_optional_segments() {
         let parts =
             template_parts("find <<{{path}}>> [[name:-name {{name}}]] [[hidden:-hidden]]").unwrap();
@@ -2976,7 +3017,7 @@ mod tests {
     }
 
     #[test]
-    fn template_part_alias_uses_param_and_option_labels() {
+    fn template_part_labels_use_param_and_option_labels() {
         let mut draft = config_draft("find <<{{path}}>> [[glob:-name {{glob}}]]");
         draft.params =
             r#"[{ name = "path", label = "路径" }, { name = "glob", label = "文件名" }]"#
@@ -2984,13 +3025,10 @@ mod tests {
         draft.options = r#"[{ id = "glob", label = "按名称过滤" }]"#.to_string();
         let parts = template_parts(&draft.template).unwrap();
 
+        assert_eq!(template_part_labels(&draft, &parts[0]).unwrap(), "路径");
         assert_eq!(
-            template_part_alias(&draft, &parts[0]).unwrap(),
-            "path: 路径"
-        );
-        assert_eq!(
-            template_part_alias(&draft, &parts[1]).unwrap(),
-            "glob: 按名称过滤  glob: 文件名"
+            template_part_labels(&draft, &parts[1]).unwrap(),
+            "按名称过滤  文件名"
         );
     }
 

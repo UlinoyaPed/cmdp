@@ -332,56 +332,56 @@ fn draw_config_editor_popup(f: &mut Frame, app: &App, area: Rect) {
     let mut rows = vec![
         config_editor_item(
             texts.config_editor_command_id,
-            editor_value(editor, 0),
+            editor_value(app, editor, 0),
             editor.selected == 0 && editor.editing,
         ),
         config_editor_item(
             texts.config_editor_category_id,
-            editor_value(editor, 1),
+            editor_value(app, editor, 1),
             editor.selected == 1 && editor.editing,
         ),
         config_editor_item(
             texts.config_editor_category_alias,
-            editor_value(editor, 2),
+            editor_value(app, editor, 2),
             editor.selected == 2 && editor.editing,
         ),
         config_editor_item(
             texts.config_editor_command_title,
-            editor_value(editor, 3),
+            editor_value(app, editor, 3),
             editor.selected == 3 && editor.editing,
         ),
         config_editor_item(
             texts.config_editor_description,
-            editor_value(editor, 4),
+            editor_value(app, editor, 4),
             editor.selected == 4 && editor.editing,
         ),
         config_editor_item(
             texts.config_editor_danger,
-            editor_value(editor, 5),
+            editor_value(app, editor, 5),
             editor.selected == 5 && editor.editing,
         ),
         config_editor_item(
             texts.config_editor_template,
-            editor_value(editor, 6),
+            editor_value(app, editor, 6),
             editor.selected == 6 && editor.editing,
         ),
         config_editor_item(
             texts.config_editor_params,
-            editor_value(editor, 7),
+            editor_value(app, editor, 7),
             editor.selected == 7 && editor.editing,
         ),
         config_editor_item(
             texts.config_editor_options,
-            editor_value(editor, 8),
+            editor_value(app, editor, 8),
             editor.selected == 8 && editor.editing,
         ),
     ];
-    let aliases = app.config_editor_template_part_aliases();
+    let labels = app.config_editor_template_part_labels();
     for (idx, part) in app.config_editor_template_parts().iter().enumerate() {
         rows.push(config_template_part_item(
             texts,
             part,
-            aliases.get(idx).map(String::as_str).unwrap_or_default(),
+            labels.get(idx).map(String::as_str).unwrap_or_default(),
             editor.selected == 9 + idx,
         ));
     }
@@ -424,7 +424,7 @@ fn config_editor_target(editor: &crate::app::ConfigEditor, texts: &Texts) -> Str
     }
 }
 
-fn editor_value(editor: &crate::app::ConfigEditor, idx: usize) -> String {
+fn editor_value(app: &App, editor: &crate::app::ConfigEditor, idx: usize) -> String {
     if editor.selected == idx && editor.editing {
         edit_display(&editor.edit_buffer, editor.edit_cursor)
     } else {
@@ -437,6 +437,10 @@ fn editor_value(editor: &crate::app::ConfigEditor, idx: usize) -> String {
                 &id_with_alias(&editor.draft.category_id, &editor.draft.category_alias),
                 56,
             ),
+            7 | 8 => app
+                .config_editor_field_preview(idx)
+                .map(|value| truncate(&compact_newlines(&value), 56))
+                .unwrap_or_else(|| truncate(&compact_newlines(editor.draft.field(idx)), 56)),
             _ => truncate(&compact_newlines(editor.draft.field(idx)), 56),
         }
     }
@@ -467,7 +471,7 @@ fn config_editor_item(label: &str, value: String, editing: bool) -> ListItem<'st
 fn config_template_part_item(
     texts: &Texts,
     part: &TemplatePart,
-    alias: &str,
+    label: &str,
     selected: bool,
 ) -> ListItem<'static> {
     let value_style = if selected {
@@ -475,23 +479,11 @@ fn config_template_part_item(
     } else {
         Style::default().fg(Color::Cyan)
     };
-    let fallback = part.params.join(", ");
-    let (kind, detail) = match &part.kind {
-        TemplatePartKind::Required => (texts.config_template_required_part, fallback),
-        TemplatePartKind::Optional { id } => {
-            let detail = if alias.is_empty() {
-                format!("{id}  {}", part.params.join(", "))
-            } else {
-                alias.to_string()
-            };
-            (texts.config_template_optional_part, detail)
-        }
+    let kind = match &part.kind {
+        TemplatePartKind::Required => texts.config_template_required_part,
+        TemplatePartKind::Optional { .. } => texts.config_template_optional_part,
     };
-    let detail = if alias.is_empty() {
-        detail
-    } else {
-        alias.to_string()
-    };
+    let detail = label.to_string();
     ListItem::new(Line::from(vec![
         Span::styled(kind.to_string(), Style::default().fg(Color::White)),
         Span::raw("  "),
