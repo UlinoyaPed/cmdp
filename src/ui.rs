@@ -955,12 +955,12 @@ fn edit_display(value: &str, cursor: usize) -> String {
     let mut display = String::new();
     for (idx, ch) in value.chars().enumerate() {
         if idx == cursor {
-            display.push('▌');
+            display.push('█');
         }
         display.push(ch);
     }
     if cursor == value.chars().count() {
-        display.push('▌');
+        display.push('█');
     }
     compact_newlines(&display)
 }
@@ -1072,15 +1072,15 @@ mod tests {
 
     #[test]
     fn edit_display_places_cursor_by_character_index() {
-        assert_eq!(edit_display("a中c", 2), "a中▌c");
-        assert_eq!(edit_display("a中c", 10), "a中c▌");
+        assert_eq!(edit_display("a中c", 2), "a中█c");
+        assert_eq!(edit_display("a中c", 10), "a中c█");
     }
 
     #[test]
     fn edit_display_compacts_newlines_for_list_rows() {
         assert_eq!(
             edit_display("echo one\necho two", 8),
-            "echo one▌ ↵ echo two"
+            "echo one█ ↵ echo two"
         );
     }
 
