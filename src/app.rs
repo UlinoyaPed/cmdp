@@ -47,6 +47,7 @@ pub struct FilePicker {
     pub dir: PathBuf,
     pub entries: Vec<FilePickerEntry>,
     pub selected: usize,
+    pub offset: usize,
     pub error: Option<String>,
 }
 
@@ -59,9 +60,11 @@ pub struct FilePickerEntry {
 
 #[derive(Debug, Clone)]
 pub struct ConfigEditor {
+    pub original_command_id: Option<String>,
     pub draft: ConfigDraft,
     pub target: ConfigEditTarget,
     pub selected: usize,
+    pub offset: usize,
     pub editing: bool,
     pub edit_buffer: String,
     pub edit_cursor: usize,
@@ -71,6 +74,7 @@ pub struct ConfigEditor {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConfigEditTarget {
     GlobalEditor,
+    GlobalFile(PathBuf),
     LocalProject(PathBuf),
 }
 
@@ -78,6 +82,7 @@ pub enum ConfigEditTarget {
 pub struct TemplatePropertyEditor {
     pub part_index: usize,
     pub selected: usize,
+    pub offset: usize,
     pub editing: bool,
     pub edit_buffer: String,
     pub edit_cursor: usize,
@@ -156,8 +161,11 @@ struct ChoicesSpec {
 pub struct App {
     pub config: Config,
     pub category_idx: usize,
+    pub category_offset: usize,
     pub command_idx: usize,
+    pub command_offset: usize,
     pub form_idx: usize,
+    pub form_offset: usize,
     pub focus: Focus,
     pub editing: bool,
     pub search_editing: bool,
@@ -167,7 +175,7 @@ pub struct App {
     pub values: HashMap<String, String>,
     pub enabled: HashSet<String>,
     pub should_quit: bool,
-    pub output: Option<String>,
+    pub output: Option<renderer::PreparedCommand>,
     pub error: Option<String>,
     pub preview_scroll: u16,
     pub history_cleared: bool,
@@ -175,6 +183,7 @@ pub struct App {
     pub show_help: bool,
     pub show_settings: bool,
     pub settings_idx: usize,
+    pub settings_offset: usize,
     pub config_editor: Option<ConfigEditor>,
     pub file_picker: Option<FilePicker>,
 }
@@ -184,8 +193,11 @@ impl App {
         let mut app = Self {
             config,
             category_idx: 0,
+            category_offset: 0,
             command_idx: 0,
+            command_offset: 0,
             form_idx: 0,
+            form_offset: 0,
             focus: Focus::Categories,
             editing: false,
             search_editing: false,
@@ -203,6 +215,7 @@ impl App {
             show_help: false,
             show_settings: false,
             settings_idx: 0,
+            settings_offset: 0,
             config_editor: None,
             file_picker: None,
         };
@@ -216,7 +229,10 @@ impl App {
             Ok(c) => {
                 self.config = c;
                 self.category_idx = 0;
+                self.category_offset = 0;
                 self.command_idx = 0;
+                self.command_offset = 0;
+                self.form_offset = 0;
                 self.editing = false;
                 self.edit_cursor = 0;
                 self.search_editing = false;
@@ -564,9 +580,11 @@ impl App {
         let draft = self.current_config_draft();
         let target = self.current_config_edit_target();
         self.config_editor = Some(ConfigEditor {
+            original_command_id: self.current_command().map(|(id, _)| id.clone()),
             draft,
             target,
             selected: 0,
+            offset: 0,
             editing: false,
             edit_buffer: String::new(),
             edit_cursor: 0,
@@ -618,8 +636,10 @@ impl App {
         let draft = self.new_config_draft();
         if let Some(editor) = self.config_editor.as_mut() {
             editor.draft = draft;
+            editor.original_command_id = None;
             editor.target = ConfigEditTarget::GlobalEditor;
             editor.selected = 0;
+            editor.offset = 0;
             editor.editing = false;
             editor.edit_buffer.clear();
             editor.edit_cursor = 0;
@@ -816,6 +836,7 @@ impl App {
         editor.template_property_editor = Some(TemplatePropertyEditor {
             part_index,
             selected: 0,
+            offset: 0,
             editing: false,
             edit_buffer: String::new(),
             edit_cursor: 0,
@@ -1106,7 +1127,7 @@ impl App {
         let Some(editor) = self.config_editor.as_ref() else {
             return;
         };
-        let edit = match editor.draft.to_command_edit() {
+        let mut edit = match editor.draft.to_command_edit() {
             Ok(edit) => edit,
             Err(error) => {
                 self.error = Some(format!(
@@ -1116,10 +1137,26 @@ impl App {
                 return;
             }
         };
+        edit.original_command_id = editor.original_command_id.clone();
+        if edit.original_command_id.as_deref() != Some(edit.command_id.as_str())
+            && self.config.commands.contains_key(&edit.command_id)
+        {
+            self.error = Some(format!(
+                "{}{}",
+                self.texts().config_editor_command_id_exists,
+                edit.command_id
+            ));
+            return;
+        }
         let target = editor.target.clone();
+        let saved_command_id = edit.command_id.clone();
+        let saved_category_id = edit.category_id.clone();
 
         let save_result = match target {
             ConfigEditTarget::GlobalEditor => config::save_command_edit(&edit),
+            ConfigEditTarget::GlobalFile(path) => {
+                config::save_command_edit_to_local_path(&path, &edit)
+            }
             ConfigEditTarget::LocalProject(path) => {
                 config::save_command_edit_to_local_path(&path, &edit)
             }
@@ -1134,6 +1171,22 @@ impl App {
         }
 
         self.reload();
+        if let Some(category) = self
+            .category_ids()
+            .iter()
+            .position(|id| id.as_str() == saved_category_id)
+        {
+            self.category_idx = category;
+            if let Some(command) = self
+                .commands_in_category()
+                .iter()
+                .position(|(id, _)| id.as_str() == saved_command_id)
+            {
+                self.command_idx = command;
+                self.reset_form();
+                self.persist_selection();
+            }
+        }
     }
 
     pub fn select_category(&mut self, idx: usize) {
@@ -1143,6 +1196,8 @@ impl App {
             self.focus = Focus::Categories;
             self.category_idx = idx;
             self.command_idx = 0;
+            self.command_offset = 0;
+            self.form_offset = 0;
             self.search_editing = false;
             self.search_query.clear();
             self.file_picker = None;
@@ -1159,6 +1214,7 @@ impl App {
             self.search_editing = false;
             self.file_picker = None;
             self.command_idx = idx;
+            self.form_offset = 0;
             self.sync_category_to_current_command();
             self.reset_form();
             self.persist_selection();
@@ -1440,15 +1496,27 @@ impl App {
     }
 
     pub fn confirm(&mut self) {
-        let Some(rendered) = self.render(false) else {
+        let Some(template) = self.parsed() else {
             return;
         };
-        if !rendered.missing.is_empty() {
+        let secrets = self
+            .current_command()
+            .map(|(_, command)| {
+                command
+                    .params
+                    .iter()
+                    .filter(|param| param.secret)
+                    .map(|param| param.name.clone())
+                    .collect()
+            })
+            .unwrap_or_default();
+        let prepared = renderer::prepare(&template, &self.values, &self.enabled, &secrets);
+        if !prepared.missing.is_empty() {
             self.danger_confirmation = None;
             self.error = Some(format!(
                 "{}{}",
                 self.texts().missing_params_prefix,
-                rendered.missing.join(", ")
+                prepared.missing.join(", ")
             ));
             return;
         }
@@ -1456,15 +1524,15 @@ impl App {
         if self
             .current_command()
             .is_some_and(|(_, command)| command.danger)
-            && self.danger_confirmation.as_deref() != Some(rendered.text.as_str())
+            && self.danger_confirmation.as_deref() != Some(prepared.command.execution_text.as_str())
         {
-            self.danger_confirmation = Some(rendered.text);
+            self.danger_confirmation = Some(prepared.command.execution_text.clone());
             self.error = Some(self.texts().danger_confirmation.to_string());
             return;
         }
 
         self.persist_current_input();
-        self.output = Some(rendered.text);
+        self.output = Some(prepared.command);
         self.should_quit = true;
     }
 
@@ -1476,6 +1544,8 @@ impl App {
 
     fn search_changed(&mut self) {
         self.command_idx = 0;
+        self.command_offset = 0;
+        self.form_offset = 0;
         self.sync_category_to_current_command();
         self.reset_form();
     }
@@ -1555,21 +1625,11 @@ impl App {
             return;
         };
         let command_id = command_id.clone();
-        let remembered_params: HashSet<_> = command
-            .params
-            .iter()
-            .filter(|param| !param.secret)
-            .map(|param| param.name.clone())
-            .collect();
+        let remembered = remembered_values(command, &self.values);
         let mut app_state = self.load_app_state_or_default();
         let record = InputRecord {
             command_id: command_id.clone(),
-            values: self
-                .values
-                .iter()
-                .filter(|(name, _)| remembered_params.contains(name.as_str()))
-                .map(|(k, v)| (k.clone(), v.clone()))
-                .collect(),
+            values: remembered,
             enabled: sorted_enabled(&self.enabled),
         };
         app_state
@@ -1802,11 +1862,21 @@ impl App {
     }
 
     fn current_config_edit_target(&self) -> ConfigEditTarget {
-        let source = self.current_command().map(|(_, command)| command.source);
+        let current = self
+            .current_command()
+            .map(|(id, command)| (id.clone(), command.source));
         let local_path = std::env::current_dir()
             .ok()
             .and_then(|cwd| config::find_local(&cwd));
-        config_edit_target(source, local_path)
+        match current {
+            Some((_, Source::Local)) => config_edit_target(Some(Source::Local), local_path),
+            Some((id, Source::Global)) => config::find_global_command_path(&id)
+                .ok()
+                .flatten()
+                .map(ConfigEditTarget::GlobalFile)
+                .unwrap_or(ConfigEditTarget::GlobalEditor),
+            None => ConfigEditTarget::GlobalEditor,
+        }
     }
 
     fn active_template_property_edit(&self) -> Option<(TemplatePropertyFieldKind, String)> {
@@ -1853,6 +1923,7 @@ fn load_file_picker(param_name: String, dir: PathBuf, texts: &'static Texts) -> 
         dir,
         entries: Vec::new(),
         selected: 0,
+        offset: 0,
         error: None,
     };
     match read_file_entries(&picker.dir, texts) {
@@ -1940,6 +2011,7 @@ impl ConfigDraft {
 
     fn to_command_edit(&self) -> Result<config::CommandEdit, String> {
         Ok(config::CommandEdit {
+            original_command_id: None,
             command_id: self.command_id.trim().to_string(),
             category_id: self.category_id.trim().to_string(),
             category_alias: optional_string(&self.category_alias),
@@ -2532,6 +2604,23 @@ fn clamp_text_cursor(cursor: &mut usize, value: &str) {
     *cursor = (*cursor).min(value.chars().count());
 }
 
+fn remembered_values(
+    command: &Command,
+    values: &HashMap<String, String>,
+) -> std::collections::BTreeMap<String, String> {
+    let allowed: HashSet<_> = command
+        .params
+        .iter()
+        .filter(|param| !param.secret)
+        .map(|param| param.name.as_str())
+        .collect();
+    values
+        .iter()
+        .filter(|(name, _)| allowed.contains(name.as_str()))
+        .map(|(name, value)| (name.clone(), value.clone()))
+        .collect()
+}
+
 fn command_id_matches_query(id: &str, query: &str) -> bool {
     let id = normalize_command_id_fuzzy_text(id);
     let query = normalize_command_id_fuzzy_text(query);
@@ -2547,13 +2636,14 @@ fn normalize_command_id_fuzzy_text(value: &str) -> String {
 }
 
 fn wrapped_text_line_count(text: &str, width: usize) -> usize {
+    use unicode_width::UnicodeWidthStr;
     if text.is_empty() {
         return 1;
     }
     text.split('\n')
         .map(|line| {
-            let chars = line.chars().count().max(1);
-            chars.div_ceil(width)
+            let columns = UnicodeWidthStr::width(line).max(1);
+            columns.div_ceil(width)
         })
         .sum()
 }
@@ -2676,7 +2766,58 @@ mod tests {
         app.confirm();
 
         assert!(app.should_quit);
-        assert_eq!(app.output.as_deref(), Some("rm -rf ./target"));
+        assert_eq!(
+            app.output
+                .as_ref()
+                .map(|command| command.execution_text.as_str()),
+            Some("rm -rf ./target")
+        );
+    }
+
+    #[test]
+    fn changing_parameters_invalidates_danger_confirmation() {
+        let mut config = test_config();
+        config.commands.get_mut("find_large").unwrap().danger = true;
+        let mut app = App::new(config);
+        app.confirm();
+        let first = app.danger_confirmation.clone().unwrap();
+        app.values.insert("path".into(), "different path".into());
+        app.confirm();
+        assert!(app.output.is_none());
+        assert_ne!(app.danger_confirmation.as_deref(), Some(first.as_str()));
+    }
+
+    #[test]
+    fn secret_values_are_excluded_from_persisted_input() {
+        let mut command = command("file", "Login", "login {{user}} {{token}}", Source::Global);
+        command.params = vec![
+            Param {
+                name: "user".into(),
+                label: None,
+                default: None,
+                placeholder: None,
+                help: None,
+                secret: false,
+                choices: None,
+            },
+            Param {
+                name: "token".into(),
+                label: None,
+                default: None,
+                placeholder: None,
+                help: None,
+                secret: true,
+                choices: None,
+            },
+        ];
+        let values = HashMap::from([
+            ("user".into(), "alice".into()),
+            ("token".into(), "very-secret".into()),
+        ]);
+        let remembered = remembered_values(&command, &values);
+        assert_eq!(remembered.get("user").map(String::as_str), Some("alice"));
+        assert!(!remembered.contains_key("token"));
+        assert!(!format!("{remembered:?}").contains("very-secret"));
     }
 
     #[test]
@@ -2855,6 +2996,7 @@ mod tests {
                 is_dir: false,
             }],
             selected: 0,
+            offset: 0,
             error: None,
         });
 
@@ -2886,6 +3028,7 @@ mod tests {
                 is_dir: true,
             }],
             selected: 0,
+            offset: 0,
             error: None,
         });
 

@@ -2,10 +2,17 @@ use crate::{
     app::{App, Focus},
     ui,
 };
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+use crossterm::event::{
+    KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+};
 use ratatui::prelude::Rect;
 
 pub fn handle_key(app: &mut App, key: KeyEvent) {
+    if key.kind == KeyEventKind::Release
+        || (key.kind == KeyEventKind::Repeat && !repeat_allowed(app, key))
+    {
+        return;
+    }
     if app.show_help {
         match key.code {
             KeyCode::Esc | KeyCode::F(1) | KeyCode::Char('?') => app.close_help(),
@@ -191,6 +198,33 @@ pub fn handle_key(app: &mut App, key: KeyEvent) {
     }
 }
 
+fn repeat_allowed(app: &App, key: KeyEvent) -> bool {
+    if key.modifiers.contains(KeyModifiers::CONTROL) || key.modifiers.contains(KeyModifiers::ALT) {
+        return false;
+    }
+    match key.code {
+        KeyCode::Up
+        | KeyCode::Down
+        | KeyCode::Left
+        | KeyCode::Right
+        | KeyCode::Backspace
+        | KeyCode::Delete => true,
+        KeyCode::Char('j' | 'k') => true,
+        KeyCode::Char(_) => {
+            app.editing
+                || app.search_editing
+                || app.config_editor.as_ref().is_some_and(|editor| {
+                    editor.editing
+                        || editor
+                            .template_property_editor
+                            .as_ref()
+                            .is_some_and(|property| property.editing)
+                })
+        }
+        _ => false,
+    }
+}
+
 pub fn handle_paste(app: &mut App, text: &str) {
     if app.config_template_property_is_open()
         && app
@@ -240,11 +274,11 @@ pub fn handle_mouse(app: &mut App, mouse: MouseEvent, screen: Rect) {
             if contains(areas.execute_button, mouse.column, mouse.row) {
                 app.confirm();
             } else if let Some(idx) = item_index(areas.categories, mouse.column, mouse.row) {
-                app.select_category(idx);
+                app.select_category(app.category_offset + idx);
             } else if let Some(idx) = item_index(areas.commands, mouse.column, mouse.row) {
-                app.select_command(idx);
+                app.select_command(app.command_offset + idx);
             } else if let Some(idx) = item_index(areas.form, mouse.column, mouse.row) {
-                app.select_form_item(idx, true);
+                app.select_form_item(app.form_offset + idx, true);
             }
         }
         MouseEventKind::ScrollUp => scroll_at(app, mouse.column, mouse.row, screen, false),
@@ -258,7 +292,7 @@ fn handle_settings_mouse(app: &mut App, mouse: MouseEvent, screen: Rect) {
     match mouse.kind {
         MouseEventKind::Down(MouseButton::Left) => {
             if let Some(idx) = item_index(popup, mouse.column, mouse.row) {
-                app.select_setting(idx, true);
+                app.select_setting(app.settings_offset + idx, true);
             }
         }
         MouseEventKind::ScrollUp => app.move_settings(false),
@@ -276,7 +310,8 @@ fn handle_config_editor_mouse(app: &mut App, mouse: MouseEvent, screen: Rect) {
     match mouse.kind {
         MouseEventKind::Down(MouseButton::Left) => {
             if let Some(idx) = item_index(popup, mouse.column, mouse.row) {
-                app.select_config_editor_field(idx, true);
+                let offset = app.config_editor.as_ref().map_or(0, |editor| editor.offset);
+                app.select_config_editor_field(offset + idx, true);
             }
         }
         MouseEventKind::ScrollUp
@@ -298,7 +333,12 @@ fn handle_config_template_property_mouse(app: &mut App, mouse: MouseEvent, scree
     match mouse.kind {
         MouseEventKind::Down(MouseButton::Left) => {
             if let Some(idx) = item_index(popup, mouse.column, mouse.row) {
-                app.select_config_template_property(idx, true);
+                let offset = app
+                    .config_editor
+                    .as_ref()
+                    .and_then(|editor| editor.template_property_editor.as_ref())
+                    .map_or(0, |property| property.offset);
+                app.select_config_template_property(offset + idx, true);
             }
         }
         MouseEventKind::ScrollUp
@@ -335,7 +375,8 @@ fn handle_file_picker_mouse(app: &mut App, mouse: MouseEvent, screen: Rect) {
     match mouse.kind {
         MouseEventKind::Down(MouseButton::Left) => {
             if let Some(idx) = plain_item_index(entries, mouse.column, mouse.row) {
-                app.select_file_picker_entry(idx, true);
+                let offset = app.file_picker.as_ref().map_or(0, |picker| picker.offset);
+                app.select_file_picker_entry(offset + idx, true);
             }
         }
         MouseEventKind::ScrollUp => app.move_file_picker(false),
@@ -641,6 +682,7 @@ mod tests {
                 is_dir: false,
             }],
             selected: 0,
+            offset: 0,
             error: None,
         });
         let screen = Rect::new(0, 0, 100, 30);
@@ -662,5 +704,56 @@ mod tests {
             Some("Cargo.toml")
         );
         assert!(app.file_picker.is_none());
+    }
+
+    #[test]
+    fn repeat_and_release_do_not_confirm_a_dangerous_command_twice() {
+        let mut config = long_preview_config();
+        config.commands.get_mut("long").unwrap().danger = true;
+        let mut app = App::new(config);
+        let key = |kind| KeyEvent {
+            code: KeyCode::Char('y'),
+            modifiers: KeyModifiers::CONTROL,
+            kind,
+            state: KeyEventState::NONE,
+        };
+        handle_key(&mut app, key(KeyEventKind::Press));
+        assert!(app.danger_confirmation.is_some());
+        assert!(app.output.is_none());
+        handle_key(&mut app, key(KeyEventKind::Repeat));
+        handle_key(&mut app, key(KeyEventKind::Release));
+        assert!(app.danger_confirmation.is_some());
+        assert!(app.output.is_none());
+        assert!(!app.should_quit);
+    }
+
+    #[test]
+    fn mouse_click_uses_persisted_list_offset() {
+        let mut config = Config::default();
+        for index in 0..20 {
+            config.categories.insert(
+                format!("cat_{index}"),
+                Category {
+                    alias: None,
+                    source: Source::Global,
+                },
+            );
+        }
+        let mut app = App::new(config);
+        app.category_idx = 12;
+        app.category_offset = 8;
+        let screen = Rect::new(0, 0, 80, 12);
+        let area = ui::areas(screen).categories;
+        handle_mouse(
+            &mut app,
+            MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: area.x + 1,
+                row: area.y + 1,
+                modifiers: KeyModifiers::NONE,
+            },
+            screen,
+        );
+        assert_eq!(app.category_idx, 8);
     }
 }

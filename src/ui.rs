@@ -44,7 +44,7 @@ pub fn areas(size: Rect) -> UiAreas {
     }
 }
 
-pub fn draw(f: &mut Frame, app: &App) {
+pub fn draw(f: &mut Frame, app: &mut App) {
     let areas = areas(f.area());
     let texts = app.texts();
 
@@ -256,7 +256,7 @@ fn key_style() -> Style {
         .add_modifier(Modifier::BOLD)
 }
 
-fn draw_settings_popup(f: &mut Frame, app: &App, area: Rect) {
+fn draw_settings_popup(f: &mut Frame, app: &mut App, area: Rect) {
     let texts = app.texts();
     let settings = &app.config.settings;
     let popup = settings_popup_area(area);
@@ -281,6 +281,7 @@ fn draw_settings_popup(f: &mut Frame, app: &App, area: Rect) {
     ];
     let mut state = ListState::default();
     state.select(Some(app.settings_idx));
+    *state.offset_mut() = app.settings_offset;
 
     f.render_widget(Clear, popup);
     f.render_stateful_widget(
@@ -305,6 +306,7 @@ fn draw_settings_popup(f: &mut Frame, app: &App, area: Rect) {
         popup,
         &mut state,
     );
+    app.settings_offset = state.offset();
 }
 
 fn settings_item(label: &str, value: &str) -> ListItem<'static> {
@@ -323,7 +325,7 @@ fn bool_label(value: bool, texts: &Texts) -> &'static str {
     }
 }
 
-fn draw_config_editor_popup(f: &mut Frame, app: &App, area: Rect) {
+fn draw_config_editor_popup(f: &mut Frame, app: &mut App, area: Rect) {
     let Some(editor) = &app.config_editor else {
         return;
     };
@@ -392,6 +394,7 @@ fn draw_config_editor_popup(f: &mut Frame, app: &App, area: Rect) {
     }
     let mut state = ListState::default();
     state.select(Some(editor.selected));
+    *state.offset_mut() = editor.offset;
 
     f.render_widget(Clear, popup);
     f.render_stateful_widget(
@@ -416,11 +419,19 @@ fn draw_config_editor_popup(f: &mut Frame, app: &App, area: Rect) {
         popup,
         &mut state,
     );
+    if let Some(editor) = app.config_editor.as_mut() {
+        editor.offset = state.offset();
+    }
 }
 
 fn config_editor_target(editor: &crate::app::ConfigEditor, texts: &Texts) -> String {
     match &editor.target {
         ConfigEditTarget::GlobalEditor => texts.config_editor_target_global.to_string(),
+        ConfigEditTarget::GlobalFile(path) => format!(
+            "{}{}",
+            texts.config_editor_target_global,
+            truncate(&path.display().to_string(), 32)
+        ),
         ConfigEditTarget::LocalProject(path) => format!(
             "{}{}",
             texts.config_editor_target_local_prefix,
@@ -498,7 +509,7 @@ fn config_template_part_item(
     ]))
 }
 
-fn draw_config_template_property_popup(f: &mut Frame, app: &App, area: Rect) {
+fn draw_config_template_property_popup(f: &mut Frame, app: &mut App, area: Rect) {
     let Some(editor) = &app.config_editor else {
         return;
     };
@@ -542,6 +553,7 @@ fn draw_config_template_property_popup(f: &mut Frame, app: &App, area: Rect) {
     state.select(Some(
         property_editor.selected.min(rows.len().saturating_sub(1)),
     ));
+    *state.offset_mut() = property_editor.offset;
 
     f.render_widget(Clear, popup);
     f.render_stateful_widget(
@@ -566,9 +578,16 @@ fn draw_config_template_property_popup(f: &mut Frame, app: &App, area: Rect) {
         popup,
         &mut state,
     );
+    if let Some(property) = app
+        .config_editor
+        .as_mut()
+        .and_then(|editor| editor.template_property_editor.as_mut())
+    {
+        property.offset = state.offset();
+    }
 }
 
-fn draw_file_picker_popup(f: &mut Frame, app: &App, area: Rect) {
+fn draw_file_picker_popup(f: &mut Frame, app: &mut App, area: Rect) {
     let Some(picker) = &app.file_picker else {
         return;
     };
@@ -664,6 +683,7 @@ fn draw_file_picker_popup(f: &mut Frame, app: &App, area: Rect) {
     } else {
         state.select(Some(picker.selected));
     }
+    *state.offset_mut() = picker.offset;
     f.render_stateful_widget(
         List::new(rows)
             .highlight_symbol("› ")
@@ -671,6 +691,9 @@ fn draw_file_picker_popup(f: &mut Frame, app: &App, area: Rect) {
         chunks[1],
         &mut state,
     );
+    if let Some(picker) = app.file_picker.as_mut() {
+        picker.offset = state.offset();
+    }
 }
 
 fn block(t: &str, focus: bool) -> Block<'static> {
@@ -743,7 +766,7 @@ pub fn preview_viewport_size(area: Rect) -> (u16, u16) {
     (area.width.saturating_sub(2), area.height.saturating_sub(2))
 }
 
-fn draw_categories(f: &mut Frame, app: &App, area: Rect) {
+fn draw_categories(f: &mut Frame, app: &mut App, area: Rect) {
     let texts = app.texts();
     let items: Vec<ListItem> = app
         .config
@@ -758,6 +781,7 @@ fn draw_categories(f: &mut Frame, app: &App, area: Rect) {
         .collect();
     let mut state = ListState::default();
     state.select(Some(app.category_idx));
+    *state.offset_mut() = app.category_offset;
     f.render_stateful_widget(
         List::new(items)
             .highlight_symbol("› ")
@@ -769,9 +793,10 @@ fn draw_categories(f: &mut Frame, app: &App, area: Rect) {
         area,
         &mut state,
     );
+    app.category_offset = state.offset();
 }
 
-fn draw_commands(f: &mut Frame, app: &App, area: Rect) {
+fn draw_commands(f: &mut Frame, app: &mut App, area: Rect) {
     let texts = app.texts();
     let commands = app.visible_commands();
     let command_help = command_help_text(texts, &commands, app.command_idx, area.width);
@@ -799,6 +824,7 @@ fn draw_commands(f: &mut Frame, app: &App, area: Rect) {
     } else {
         state.select(Some(app.command_idx));
     }
+    *state.offset_mut() = app.command_offset;
 
     let title = if app.search_active() {
         format!(
@@ -821,6 +847,7 @@ fn draw_commands(f: &mut Frame, app: &App, area: Rect) {
         area,
         &mut state,
     );
+    app.command_offset = state.offset();
 }
 
 fn command_item(app: &App, id: &str, command: &crate::template::Command) -> ListItem<'static> {
@@ -871,7 +898,7 @@ fn command_help_text(
     ))
 }
 
-fn draw_form(f: &mut Frame, app: &App, area: Rect) {
+fn draw_form(f: &mut Frame, app: &mut App, area: Rect) {
     let texts = app.texts();
     let form_items = app.form_items();
     let form_help = if app.focus == Focus::Form {
@@ -921,6 +948,7 @@ fn draw_form(f: &mut Frame, app: &App, area: Rect) {
     } else {
         state.select(Some(app.form_idx));
     }
+    *state.offset_mut() = app.form_offset;
     f.render_stateful_widget(
         List::new(rows)
             .highlight_symbol("› ")
@@ -933,6 +961,7 @@ fn draw_form(f: &mut Frame, app: &App, area: Rect) {
         area,
         &mut state,
     );
+    app.form_offset = state.offset();
 }
 
 fn form_help_text(
@@ -1110,13 +1139,24 @@ fn source_summary(sources: &[String], texts: &Texts) -> &'static str {
 }
 
 fn truncate(value: &str, max_chars: usize) -> String {
-    let mut chars = value.chars();
-    let truncated: String = chars.by_ref().take(max_chars).collect();
-    if chars.next().is_some() {
-        format!("{truncated}...")
-    } else {
-        truncated
+    use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+    if UnicodeWidthStr::width(value) <= max_chars {
+        return value.to_string();
     }
+    let suffix = if max_chars >= 3 { "..." } else { "" };
+    let budget = max_chars.saturating_sub(suffix.len());
+    let mut width = 0;
+    let mut out = String::new();
+    for ch in value.chars() {
+        let next = UnicodeWidthChar::width(ch).unwrap_or(0);
+        if width + next > budget {
+            break;
+        }
+        width += next;
+        out.push(ch);
+    }
+    out.push_str(suffix);
+    out
 }
 
 fn execute_button_area(header: Rect) -> Rect {
@@ -1177,7 +1217,7 @@ fn file_picker_chunks(popup: Rect) -> Rc<[Rect]> {
 mod tests {
     use super::{
         centered_rect, command_description, command_help_text, edit_display, form_help_style,
-        form_help_text, preview_line_style, source_short_label,
+        form_help_text, preview_line_style, source_short_label, truncate,
     };
     use crate::app::FormItem;
     use crate::i18n::ZH_CN;
@@ -1188,6 +1228,21 @@ mod tests {
     fn source_labels_are_compact() {
         assert_eq!(source_short_label(Source::Global), "g");
         assert_eq!(source_short_label(Source::Local), "l");
+    }
+
+    #[test]
+    fn truncate_respects_terminal_width_for_unicode() {
+        use unicode_width::UnicodeWidthStr;
+        for value in [
+            "ASCII text",
+            "中文字符测试",
+            "emoji🙂test",
+            "e\u{301}cole混合",
+        ] {
+            let shortened = truncate(value, 8);
+            assert!(UnicodeWidthStr::width(shortened.as_str()) <= 8);
+            assert!(std::str::from_utf8(shortened.as_bytes()).is_ok());
+        }
     }
 
     #[test]

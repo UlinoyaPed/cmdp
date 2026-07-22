@@ -36,7 +36,22 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Run Clippy
-        run: cargo clippy --locked --all-targets -- -D warnings
+        run: cargo clippy --locked --all-targets --all-features -- -D warnings
 
+      - name: Run tests
+        run: cargo test --locked --all-features
+
+      - name: Build
+        run: cargo build --locked
+
+  windows:
+    name: Windows compatibility check
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Rust
+        run: rustup toolchain install stable --profile minimal
+      - name: Check all targets
+        run: cargo check --locked --all-targets
       - name: Run tests
         run: cargo test --locked

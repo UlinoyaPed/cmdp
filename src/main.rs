@@ -1,4 +1,5 @@
 mod app;
+mod atomic;
 mod config;
 mod error;
 mod event;
@@ -9,37 +10,29 @@ mod preview;
 mod renderer;
 mod state;
 mod template;
+mod terminal_session;
 mod ui;
 use anyhow::Result;
-use crossterm::{
-    event::{DisableMouseCapture, EnableMouseCapture, Event, poll, read},
-    execute,
-    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
-};
+use crossterm::event::{Event, poll, read};
 use ratatui::{Terminal, backend::CrosstermBackend};
 use std::{io, process, time::Duration};
 
 fn main() -> Result<()> {
     let cfg = config::load()?;
     let mut app = app::App::new(cfg);
-    enable_raw_mode()?;
-    let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+    let mut session = terminal_session::TerminalSession::enter()?;
+    let stdout = io::stdout();
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
     let res = run(&mut terminal, &mut app);
     app.persist_exit_state();
-    disable_raw_mode()?;
-    execute!(
-        terminal.backend_mut(),
-        LeaveAlternateScreen,
-        DisableMouseCapture
-    )?;
-    terminal.show_cursor()?;
+    drop(terminal);
+    let restore = session.restore();
     res?;
+    restore?;
     if let Some(cmd) = app.output {
         let status = output::execute_command(&cmd)?;
-        process::exit(status.code().unwrap_or(1));
+        process::exit(output::exit_code(status));
     }
     Ok(())
 }
