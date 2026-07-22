@@ -2,8 +2,7 @@ use crate::template::AppState;
 use anyhow::{Context, Result};
 use directories::BaseDirs;
 use std::{
-    fs,
-    io::{self, Write},
+    fs, io,
     path::{Path, PathBuf},
 };
 
@@ -52,25 +51,8 @@ fn write_to_path(path: &Path, state: &AppState) -> Result<()> {
         fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
     }
     let text = toml::to_string(state).context("serialize app state")?;
-    write_private(path, text.as_bytes()).with_context(|| format!("write {}", path.display()))
-}
-
-#[cfg(unix)]
-fn write_private(path: &Path, contents: &[u8]) -> io::Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-
-    let mut file = fs::OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(true)
-        .open(path)?;
-    file.set_permissions(fs::Permissions::from_mode(0o600))?;
-    file.write_all(contents)
-}
-
-#[cfg(not(unix))]
-fn write_private(path: &Path, contents: &[u8]) -> io::Result<()> {
-    fs::write(path, contents)
+    crate::atomic::write(path, text.as_bytes(), true)
+        .with_context(|| format!("write {}", path.display()))
 }
 
 #[cfg(test)]

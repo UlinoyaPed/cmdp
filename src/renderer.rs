@@ -7,11 +7,50 @@ pub struct Rendered {
     pub missing: Vec<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedCommand {
+    pub execution_text: String,
+    pub display_text: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct Prepared {
+    pub command: PreparedCommand,
+    pub missing: Vec<String>,
+}
+
 pub fn render(
     tpl: &ParsedTemplate,
     values: &HashMap<String, String>,
     enabled: &HashSet<String>,
     mask_secret: &HashSet<String>,
+) -> Rendered {
+    render_mode(tpl, values, enabled, mask_secret, false)
+}
+
+pub fn prepare(
+    tpl: &ParsedTemplate,
+    values: &HashMap<String, String>,
+    enabled: &HashSet<String>,
+    secret: &HashSet<String>,
+) -> Prepared {
+    let execution = render_mode(tpl, values, enabled, &HashSet::new(), true);
+    let display = render_mode(tpl, values, enabled, secret, true);
+    Prepared {
+        command: PreparedCommand {
+            execution_text: execution.text,
+            display_text: display.text,
+        },
+        missing: execution.missing,
+    }
+}
+
+fn render_mode(
+    tpl: &ParsedTemplate,
+    values: &HashMap<String, String>,
+    enabled: &HashSet<String>,
+    mask_secret: &HashSet<String>,
+    shell_escape: bool,
 ) -> Rendered {
     let mut missing = Vec::new();
     let mut text = RenderText::default();
@@ -20,6 +59,7 @@ pub fn render(
         values,
         enabled,
         mask_secret,
+        shell_escape,
         &mut missing,
         &mut text,
     );
@@ -34,27 +74,41 @@ fn render_nodes(
     values: &HashMap<String, String>,
     enabled: &HashSet<String>,
     mask: &HashSet<String>,
+    shell_escape: bool,
     missing: &mut Vec<String>,
     out: &mut RenderText,
 ) {
     for n in nodes {
         match n {
             Node::Text(t) => out.push_template_text(t),
-            Node::Placeholder(p) => match values.get(p).filter(|v| !v.is_empty()) {
-                Some(_) if mask.contains(p) => out.push_value("******"),
+            Node::Placeholder { name: p, raw } => match values.get(p) {
+                Some(_) if mask.contains(p) => out.push_value("'******'"),
+                Some(v) if shell_escape && !raw => out.push_value(&shell_literal(v)),
                 Some(v) => out.push_value(v),
                 None => {
                     push_missing(missing, p);
                     out.push_value(&format!("<{p}?>"));
                 }
             },
-            Node::Required(body) => render_nodes(body, values, enabled, mask, missing, out),
+            Node::Required(body) => {
+                render_nodes(body, values, enabled, mask, shell_escape, missing, out)
+            }
             Node::Optional { id, body } if enabled.contains(id) => {
-                render_nodes(body, values, enabled, mask, missing, out);
+                render_nodes(body, values, enabled, mask, shell_escape, missing, out);
             }
             Node::Optional { .. } => {}
         }
     }
+}
+
+#[cfg(unix)]
+fn shell_literal(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
+#[cfg(windows)]
+fn shell_literal(_value: &str) -> String {
+    String::new()
 }
 
 fn push_missing(missing: &mut Vec<String>, name: &str) {
@@ -215,10 +269,130 @@ mod tests {
 
         let rendered = render(&template, &values, &enabled, &HashSet::new());
 
-        assert_eq!(
-            rendered.text,
-            r#"sort < "in.txt" > "out.txt" 2>> "cmd.log""#
-        );
+        assert_eq!(rendered.text, r#"sort < in.txt > out.txt 2>> cmd.log"#);
         assert!(rendered.missing.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn safe_parameters_are_executed_as_literal_data() {
+        use std::{
+            fs,
+            process::Command,
+            time::{SystemTime, UNIX_EPOCH},
+        };
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("cmdp-shell-{nonce}"));
+        fs::create_dir_all(&dir).unwrap();
+        let output = dir.join("out; special.txt");
+        let marker = dir.join("injected");
+        let cases = [
+            "has spaces",
+            "a'b",
+            "a\"b",
+            "$(printf injected)",
+            "`printf injected`",
+            "value; printf nope",
+            "line one\nline two",
+            "",
+        ];
+        let template = parse_template("printf '%s' {{value}} > {{output}}").unwrap();
+        for value in cases {
+            let values = HashMap::from([
+                ("value".to_string(), value.to_string()),
+                ("output".to_string(), output.display().to_string()),
+            ]);
+            let prepared = prepare(&template, &values, &HashSet::new(), &HashSet::new());
+            let status = Command::new("/bin/sh")
+                .arg("-c")
+                .arg(&prepared.command.execution_text)
+                .status()
+                .unwrap();
+            assert!(status.success());
+            assert_eq!(fs::read_to_string(&output).unwrap(), value);
+            assert!(!marker.exists());
+        }
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn command_substitution_cannot_create_a_file() {
+        use std::{
+            process::Command,
+            time::{SystemTime, UNIX_EPOCH},
+        };
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let marker = std::env::temp_dir().join(format!("cmdp-marker-{nonce}"));
+        let template = parse_template("printf '%s' {{value}} > /dev/null").unwrap();
+        let value = format!("$(touch {})", marker.display());
+        let prepared = prepare(
+            &template,
+            &HashMap::from([("value".into(), value.clone())]),
+            &HashSet::new(),
+            &HashSet::new(),
+        );
+        assert!(
+            Command::new("/bin/sh")
+                .arg("-c")
+                .arg(&prepared.command.execution_text)
+                .status()
+                .unwrap()
+                .success()
+        );
+        assert!(!marker.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn raw_parameters_preserve_explicit_shell_semantics() {
+        use std::process::Command;
+        let template = parse_template("test {{{expression}}}").unwrap();
+        let prepared = prepare(
+            &template,
+            &HashMap::from([("expression".into(), "1 -eq 1".into())]),
+            &HashSet::new(),
+            &HashSet::new(),
+        );
+        assert!(
+            Command::new("/bin/sh")
+                .arg("-c")
+                .arg(&prepared.command.execution_text)
+                .status()
+                .unwrap()
+                .success()
+        );
+    }
+
+    #[test]
+    fn secret_values_only_appear_in_execution_text() {
+        let template = parse_template("login --token {{token}}").unwrap();
+        let prepared = prepare(
+            &template,
+            &HashMap::from([("token".into(), "very-secret".into())]),
+            &HashSet::new(),
+            &HashSet::from(["token".into()]),
+        );
+        assert!(prepared.command.execution_text.contains("very-secret"));
+        assert!(!prepared.command.display_text.contains("very-secret"));
+        assert!(prepared.command.display_text.contains("******"));
+    }
+
+    #[test]
+    fn legacy_double_quoted_placeholders_are_safely_normalized() {
+        let template = parse_template("cat <<\"{{path}}\">>").unwrap();
+        let prepared = prepare(
+            &template,
+            &HashMap::from([("path".into(), "a b".into())]),
+            &HashSet::new(),
+            &HashSet::new(),
+        );
+        assert_eq!(prepared.command.execution_text, "cat 'a b'");
     }
 }

@@ -1,7 +1,7 @@
 #[derive(Debug, Clone)]
 pub enum Node {
     Text(String),
-    Placeholder(String),
+    Placeholder { name: String, raw: bool },
     Required(Vec<Node>),
     Optional { id: String, body: Vec<Node> },
 }
@@ -24,8 +24,35 @@ pub struct OptionalUsage {
 }
 
 pub fn parse_template(input: &str) -> Result<ParsedTemplate, String> {
-    let nodes = parse_level(input.trim(), true)?;
+    let mut nodes = parse_level(input.trim(), true)?;
+    normalize_legacy_quotes(&mut nodes);
     Ok(ParsedTemplate { nodes })
+}
+
+fn normalize_legacy_quotes(nodes: &mut [Node]) {
+    for node in nodes.iter_mut() {
+        match node {
+            Node::Required(body) | Node::Optional { body, .. } => normalize_legacy_quotes(body),
+            _ => {}
+        }
+    }
+    for index in 1..nodes.len().saturating_sub(1) {
+        let safe = matches!(nodes[index], Node::Placeholder { raw: false, .. });
+        if !safe {
+            continue;
+        }
+        let (left, right) = nodes.split_at_mut(index);
+        let Some(Node::Text(before)) = left.last_mut() else {
+            continue;
+        };
+        let Some(Node::Text(after)) = right.get_mut(1) else {
+            continue;
+        };
+        if before.ends_with('"') && after.starts_with('"') {
+            before.pop();
+            after.remove(0);
+        }
+    }
 }
 
 pub fn is_identifier(value: &str) -> bool {
@@ -42,7 +69,7 @@ pub fn analyze_template(template: &ParsedTemplate) -> TemplateUsage {
     };
     for node in &template.nodes {
         match node {
-            Node::Placeholder(name) => push_unique(&mut usage.required_params, name),
+            Node::Placeholder { name, .. } => push_unique(&mut usage.required_params, name),
             Node::Required(body) => collect_placeholders(body, &mut usage.required_params),
             Node::Optional { id, body } => {
                 let mut params = Vec::new();
@@ -69,13 +96,27 @@ fn parse_level(input: &str, allow_segments: bool) -> Result<Vec<Node>, String> {
     let mut i = 0;
     while i < input.len() {
         let rest = &input[i..];
-        if rest.starts_with("{{") {
+        if rest.starts_with("{{{") {
+            let end = rest.find("}}}").ok_or("unclosed raw placeholder")?;
+            let name = rest[3..end].trim();
+            if !is_identifier(name) {
+                return Err(format!("invalid placeholder name '{name}'"));
+            }
+            out.push(Node::Placeholder {
+                name: name.to_string(),
+                raw: true,
+            });
+            i += end + 3;
+        } else if rest.starts_with("{{") {
             let end = rest.find("}}").ok_or("unclosed placeholder")?;
             let name = rest[2..end].trim();
             if !is_identifier(name) {
                 return Err(format!("invalid placeholder name '{name}'"));
             }
-            out.push(Node::Placeholder(name.to_string()));
+            out.push(Node::Placeholder {
+                name: name.to_string(),
+                raw: false,
+            });
             i += end + 2;
         } else if rest.starts_with("<<") {
             if !allow_segments {
@@ -136,7 +177,7 @@ fn parse_level(input: &str, allow_segments: bool) -> Result<Vec<Node>, String> {
 fn collect_placeholders(nodes: &[Node], out: &mut Vec<String>) {
     for node in nodes {
         match node {
-            Node::Placeholder(name) => push_unique(out, name),
+            Node::Placeholder { name, .. } => push_unique(out, name),
             Node::Required(body) | Node::Optional { body, .. } => collect_placeholders(body, out),
             Node::Text(_) => {}
         }

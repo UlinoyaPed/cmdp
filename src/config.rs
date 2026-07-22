@@ -39,9 +39,11 @@ options = [
 "#;
 
 const EDITOR_CONFIG_FILE: &str = "zz_cmdp_editor.toml";
+const MAX_INPUT_RECORD_LIMIT: usize = 10_000;
 
 #[derive(Debug, Clone)]
 pub struct CommandEdit {
+    pub original_command_id: Option<String>,
     pub command_id: String,
     pub category_id: String,
     pub category_alias: Option<String>,
@@ -55,7 +57,18 @@ pub struct CommandEdit {
 
 pub fn global_dir() -> Result<PathBuf> {
     let base = BaseDirs::new().context("cannot determine home directory")?;
-    Ok(base.home_dir().join(".config/cmdp"))
+    Ok(select_config_dir(
+        base.config_dir().join("cmdp"),
+        base.home_dir().join(".config/cmdp"),
+    ))
+}
+
+fn select_config_dir(xdg: PathBuf, legacy: PathBuf) -> PathBuf {
+    if xdg.exists() || !legacy.exists() {
+        xdg
+    } else {
+        legacy
+    }
 }
 
 fn ensure_dir(dir: &Path) -> Result<()> {
@@ -74,13 +87,13 @@ fn ensure_global_files_in_dir(dir: &Path) -> Result<()> {
 
     let settings = dir.join("settings.toml");
     if !settings.exists() {
-        fs::write(&settings, DEFAULT_SETTINGS_TOML)
+        crate::atomic::write(&settings, DEFAULT_SETTINGS_TOML.as_bytes(), false)
             .with_context(|| format!("write {}", settings.display()))?;
     }
 
     if toml_files_in_dir(dir)?.is_empty() {
         let commands = dir.join("commands.toml");
-        fs::write(&commands, DEFAULT_COMMANDS_TOML)
+        crate::atomic::write(&commands, DEFAULT_COMMANDS_TOML.as_bytes(), false)
             .with_context(|| format!("write {}", commands.display()))?;
     }
 
@@ -97,6 +110,22 @@ pub fn settings_path() -> Result<PathBuf> {
 
 pub fn editor_config_path() -> Result<PathBuf> {
     Ok(global_dir()?.join(EDITOR_CONFIG_FILE))
+}
+
+pub fn find_global_command_path(command_id: &str) -> Result<Option<PathBuf>> {
+    let mut found = None;
+    for path in global_paths()? {
+        let text = fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
+        if text.trim().is_empty() {
+            continue;
+        }
+        let raw: RawConfig =
+            toml::from_str(&text).with_context(|| format!("parse {}", path.display()))?;
+        if raw.commands.contains_key(command_id) {
+            found = Some(path);
+        }
+    }
+    Ok(found)
 }
 
 pub fn find_local(start: &Path) -> Option<PathBuf> {
@@ -192,42 +221,63 @@ fn load_settings_from_path(path: &Path) -> Result<Settings> {
         return Ok(Settings::default());
     }
 
-    toml::from_str(&text).with_context(|| format!("parse {}", path.display()))
+    let settings: Settings =
+        toml::from_str(&text).with_context(|| format!("parse {}", path.display()))?;
+    if settings.input_record_limit > MAX_INPUT_RECORD_LIMIT {
+        return Err(CmdpError::Config(format!(
+            "input_record_limit in {} exceeds maximum {MAX_INPUT_RECORD_LIMIT}",
+            path.display()
+        ))
+        .into());
+    }
+    Ok(settings)
 }
 
 fn save_settings_to_path(path: &Path, settings: &Settings) -> Result<()> {
     let text = settings_to_toml(settings);
-    fs::write(path, text).with_context(|| format!("write {}", path.display()))
+    crate::atomic::write(path, text.as_bytes(), false)
+        .with_context(|| format!("write {}", path.display()))
 }
 
 fn save_command_edit_to_path(path: &Path, edit: &CommandEdit) -> Result<()> {
-    let mut raw = if path.exists() {
-        let text = fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
-        if text.trim().is_empty() {
-            RawConfig::default()
-        } else {
-            toml::from_str(&text).with_context(|| format!("parse {}", path.display()))?
-        }
+    use toml_edit::{DocumentMut, Item};
+    let original = if path.exists() {
+        fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?
     } else {
-        RawConfig::default()
+        String::new()
     };
-    if raw.version.unwrap_or(1) != 1 {
+    let mut document = if original.trim().is_empty() {
+        "version = 1\n".parse::<DocumentMut>()?
+    } else {
+        original
+            .parse::<DocumentMut>()
+            .with_context(|| format!("parse {}", path.display()))?
+    };
+    let existing: RawConfig = toml::from_str(&document.to_string())
+        .with_context(|| format!("parse {}", path.display()))?;
+    if existing.version.unwrap_or(1) != 1 {
         return Err(CmdpError::Config(format!("unsupported version in {}", path.display())).into());
     }
-    raw.version = Some(1);
+    if edit.original_command_id.as_deref() != Some(edit.command_id.as_str())
+        && existing.commands.contains_key(&edit.command_id)
+    {
+        return Err(CmdpError::Config(format!(
+            "command id '{}' already exists in {}",
+            edit.command_id,
+            path.display()
+        ))
+        .into());
+    }
 
-    raw.categories
-        .entry(edit.category_id.clone())
-        .and_modify(|category| {
-            if edit.category_alias.is_some() {
-                category.alias = edit.category_alias.clone();
-            }
-        })
-        .or_insert_with(|| Category {
+    let mut fragment = RawConfig::default();
+    fragment.categories.insert(
+        edit.category_id.clone(),
+        Category {
             alias: edit.category_alias.clone(),
             source: Source::Global,
-        });
-    raw.commands.insert(
+        },
+    );
+    fragment.commands.insert(
         edit.command_id.clone(),
         Command {
             category: edit.category_id.clone(),
@@ -240,16 +290,70 @@ fn save_command_edit_to_path(path: &Path, edit: &CommandEdit) -> Result<()> {
             source: Source::Global,
         },
     );
+    let fragment = toml_edit::ser::to_document(&fragment)?;
+    if !document.contains_key("categories") {
+        document["categories"] = Item::Table(Default::default());
+    }
+    if !document.contains_key("commands") {
+        document["commands"] = Item::Table(Default::default());
+    }
+    if document["categories"].get(&edit.category_id).is_none() {
+        document["categories"][&edit.category_id] = Item::Table(Default::default());
+    }
+    if edit.category_alias.is_some() {
+        let target = &mut document["categories"][&edit.category_id]["alias"];
+        replace_item_preserving_decor(target, &fragment["categories"][&edit.category_id]["alias"]);
+    }
+    if let Some(old) = edit
+        .original_command_id
+        .as_deref()
+        .filter(|old| *old != edit.command_id)
+    {
+        let previous = document["commands"]
+            .as_table_like_mut()
+            .context("commands must be a table")?
+            .remove(old);
+        if let Some(previous) = previous {
+            document["commands"][&edit.command_id] = previous;
+        }
+    }
+    if document["commands"].get(&edit.command_id).is_none() {
+        document["commands"][&edit.command_id] = Item::Table(Default::default());
+    }
+    let target = &mut document["commands"][&edit.command_id];
+    let source = &fragment["commands"][&edit.command_id];
+    for field in ["category", "danger", "template", "params", "options"] {
+        replace_item_preserving_decor(&mut target[field], &source[field]);
+    }
+    for field in ["title", "description"] {
+        if source.get(field).is_some() {
+            replace_item_preserving_decor(&mut target[field], &source[field]);
+        } else if let Some(table) = target.as_table_like_mut() {
+            table.remove(field);
+        }
+    }
 
+    let text = document.to_string();
+    let raw: RawConfig =
+        toml::from_str(&text).with_context(|| format!("validate {}", path.display()))?;
     let cfg = Config {
-        categories: raw.categories.clone(),
-        commands: raw.commands.clone(),
+        categories: raw.categories,
+        commands: raw.commands,
         ..Config::default()
     };
     validate(&cfg)?;
+    crate::atomic::write(path, text.as_bytes(), false)
+        .with_context(|| format!("write {}", path.display()))
+}
 
-    let text = toml::to_string_pretty(&raw).context("serialize edited command config")?;
-    fs::write(path, text).with_context(|| format!("write {}", path.display()))
+fn replace_item_preserving_decor(target: &mut toml_edit::Item, source: &toml_edit::Item) {
+    if let (Some(existing), Some(replacement)) = (target.as_value_mut(), source.as_value()) {
+        let decor = existing.decor().clone();
+        *existing = replacement.clone();
+        *existing.decor_mut() = decor;
+    } else {
+        *target = source.clone();
+    }
 }
 
 fn settings_to_toml(settings: &Settings) -> String {
@@ -307,6 +411,9 @@ fn validate(cfg: &Config) -> Result<()> {
             ))
             .into());
         }
+        if cmd.template.trim().is_empty() {
+            return Err(CmdpError::Config(format!("command '{id}' has an empty template")).into());
+        }
         let parsed =
             parser::parse_template(&cmd.template).map_err(|reason| CmdpError::Template {
                 command_id: id.clone(),
@@ -314,6 +421,17 @@ fn validate(cfg: &Config) -> Result<()> {
             })?;
         let usage = parser::analyze_template(&parsed);
         let optional_ids: HashSet<_> = usage.optional.iter().map(|opt| opt.id.as_str()).collect();
+        let used_params: HashSet<_> = usage
+            .required_params
+            .iter()
+            .map(String::as_str)
+            .chain(
+                usage
+                    .optional
+                    .iter()
+                    .flat_map(|opt| opt.params.iter().map(String::as_str)),
+            )
+            .collect();
         let mut param_names = HashSet::new();
         for param in &cmd.params {
             validate_id("parameter", &param.name)?;
@@ -321,6 +439,39 @@ fn validate(cfg: &Config) -> Result<()> {
                 return Err(CmdpError::Config(format!(
                     "command '{id}' defines duplicate parameter '{}'",
                     param.name
+                ))
+                .into());
+            }
+            if let Some(choices) = &param.choices {
+                if choices.is_empty() {
+                    return Err(CmdpError::Config(format!(
+                        "command '{id}' parameter '{}' has empty choices",
+                        param.name
+                    ))
+                    .into());
+                }
+                if param.secret {
+                    return Err(CmdpError::Config(format!(
+                        "command '{id}' secret parameter '{}' cannot define choices",
+                        param.name
+                    ))
+                    .into());
+                }
+                if let Some(default) = &param.default
+                    && !choices.contains(default)
+                {
+                    return Err(CmdpError::Config(format!(
+                        "command '{id}' parameter '{}' default is not in choices",
+                        param.name
+                    ))
+                    .into());
+                }
+            }
+        }
+        for used in &used_params {
+            if !param_names.contains(used) {
+                return Err(CmdpError::Config(format!(
+                    "command '{id}' template uses undefined parameter '{used}'"
                 ))
                 .into());
             }
@@ -343,6 +494,14 @@ fn validate(cfg: &Config) -> Result<()> {
                 .into());
             }
         }
+        for optional in optional_ids {
+            if !option_ids.contains(optional) {
+                return Err(CmdpError::Config(format!(
+                    "command '{id}' optional fragment '{optional}' has no option definition"
+                ))
+                .into());
+            }
+        }
     }
     Ok(())
 }
@@ -359,7 +518,7 @@ fn validate_id(kind: &str, id: &str) -> Result<()> {
 mod tests {
     use super::{
         CommandEdit, ensure_global_files_in_dir, load_settings_from_path, merge_file,
-        save_command_edit_to_path, save_settings_to_path, toml_files_in_dir,
+        save_command_edit_to_path, save_settings_to_path, select_config_dir, toml_files_in_dir,
     };
     use crate::{
         i18n::Language,
@@ -580,6 +739,7 @@ template = "echo ok"
         save_command_edit_to_path(
             &path,
             &CommandEdit {
+                original_command_id: None,
                 command_id: "say_hello".to_string(),
                 category_id: "general".to_string(),
                 category_alias: Some("General".to_string()),
@@ -617,6 +777,103 @@ template = "echo ok"
         assert!(command.options[0].default_enabled);
 
         fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn command_edit_preserves_comments_and_unknown_fields() {
+        let dir = temp_config_dir();
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("commands.toml");
+        fs::write(
+            &path,
+            r#"# keep this comment
+version = 1
+future_setting = "keep"
+
+[categories.general]
+alias = "General" # category comment
+
+[commands.old]
+category = "general"
+template = "echo old"
+future_command_field = 42
+"#,
+        )
+        .unwrap();
+        let mut edit = sample_edit("old");
+        edit.original_command_id = Some("old".into());
+        edit.title = Some("Changed".into());
+        save_command_edit_to_path(&path, &edit).unwrap();
+        let saved = fs::read_to_string(&path).unwrap();
+        assert!(saved.contains("# keep this comment"));
+        assert!(saved.contains("future_setting = \"keep\""));
+        assert!(saved.contains("future_command_field = 42"));
+        assert!(saved.contains("# category comment"));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn renaming_command_removes_old_id_and_rejects_collision_without_writing() {
+        let dir = temp_config_dir();
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("commands.toml");
+        fs::write(
+            &path,
+            r#"version = 1
+[categories.general]
+alias = "General"
+[commands.old]
+category = "general"
+template = "echo old"
+[commands.taken]
+category = "general"
+template = "echo taken"
+"#,
+        )
+        .unwrap();
+        let before = fs::read_to_string(&path).unwrap();
+        let mut collision = sample_edit("taken");
+        collision.original_command_id = Some("old".into());
+        assert!(save_command_edit_to_path(&path, &collision).is_err());
+        assert_eq!(fs::read_to_string(&path).unwrap(), before);
+
+        let mut rename = sample_edit("renamed");
+        rename.original_command_id = Some("old".into());
+        save_command_edit_to_path(&path, &rename).unwrap();
+        let parsed: crate::template::RawConfig =
+            toml::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert!(!parsed.commands.contains_key("old"));
+        assert!(parsed.commands.contains_key("renamed"));
+        assert!(parsed.commands.contains_key("taken"));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn xdg_directory_wins_and_legacy_is_used_only_as_fallback() {
+        let dir = temp_config_dir();
+        let xdg = dir.join("xdg/cmdp");
+        let legacy = dir.join("home/.config/cmdp");
+        assert_eq!(select_config_dir(xdg.clone(), legacy.clone()), xdg);
+        fs::create_dir_all(&legacy).unwrap();
+        assert_eq!(select_config_dir(xdg.clone(), legacy.clone()), legacy);
+        fs::create_dir_all(&xdg).unwrap();
+        assert_eq!(select_config_dir(xdg.clone(), legacy), xdg);
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    fn sample_edit(id: &str) -> CommandEdit {
+        CommandEdit {
+            original_command_id: None,
+            command_id: id.into(),
+            category_id: "general".into(),
+            category_alias: Some("General".into()),
+            title: Some("Title".into()),
+            description: None,
+            danger: false,
+            template: "echo ok".into(),
+            params: vec![],
+            options: vec![],
+        }
     }
 
     fn temp_config_dir() -> PathBuf {
