@@ -101,14 +101,8 @@ fn render_nodes(
     }
 }
 
-#[cfg(unix)]
 fn shell_literal(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
-}
-
-#[cfg(windows)]
-fn shell_literal(_value: &str) -> String {
-    String::new()
 }
 
 fn push_missing(missing: &mut Vec<String>, name: &str) {
